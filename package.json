@@ -1,0 +1,21 @@
+{
+  "name": "applyt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted, single-user job application tracker (Phase 1: manual tracker).",
+  "license": "MIT",
+  "workspaces": [
+    "backend",
+    "dashboard"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,dashboard -c blue,magenta \"npm:dev:backend\" \"npm:dev:dashboard\"",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:dashboard": "npm run dev --workspace dashboard",
+    "build": "npm run build --workspace backend && npm run build --workspace dashboard",
+    "test": "npm test --workspace backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
