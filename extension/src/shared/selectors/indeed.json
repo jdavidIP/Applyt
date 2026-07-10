@@ -1,0 +1,35 @@
+{
+  "_comment": "Indeed's markup changes frequently without notice. Fix breakage here, not in indeed.ts. Prefer text matches over class names — the English confirmation copy churns far less than CSS classes.",
+
+  "jobTitleSelectors": [
+    "[data-testid='jobsearch-JobInfoHeader-title']",
+    "h1.jobsearch-JobInfoHeader-title",
+    "h1"
+  ],
+
+  "companySelectors": [
+    "[data-testid='inlineHeader-companyName']",
+    "[data-testid='jobsearch-CompanyInfoContainer'] a",
+    ".jobsearch-CompanyInfoContainer"
+  ],
+
+  "inPlatformApplyButtonSelectors": [
+    "#indeedApplyButton",
+    "[data-testid='indeedApplyButton']",
+    "button[id*='indeedApplyButton']"
+  ],
+
+  "externalApplyButtonSelectors": [
+    "[data-testid='apply-button-container'] a[href]",
+    ".jobsearch-IndeedApplyButton-newDesign a[href]"
+  ],
+
+  "confirmationContainerSelectors": ["#ia-container", "main", "#appcontent", "body"],
+
+  "confirmationTextMatches": [
+    "application submitted",
+    "your application has been submitted",
+    "application sent",
+    "you applied on"
+  ]
+}

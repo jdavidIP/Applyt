@@ -4,8 +4,9 @@ A local-first, single-user job application tracker. You run it on your own machi
 nothing is sent to any server we operate. See [`CLAUDE.md`](./CLAUDE.md) for the full
 product spec and roadmap.
 
-> **Status: Phase 1 — manual tracker.** Backend + dashboard + CSV export are working.
-> The browser extension (auto-capture) and AI resume tailoring come in later phases.
+> **Status: Phase 2 in progress — auto-capture.** Backend + dashboard + CSV export
+> (Phase 1) are working. The browser extension now auto-detects Indeed applications;
+> LinkedIn, Glassdoor, and AI resume tailoring come in later phases.
 
 ## What works today
 
@@ -39,6 +40,35 @@ The dashboard proxies API calls to the backend, so you only need the one URL.
 npm run dev:backend     # backend only, http://localhost:4317
 npm run dev:dashboard   # dashboard only, http://localhost:5173
 ```
+
+## Browser extension (auto-capture)
+
+The extension watches Indeed job pages you're already browsing and reports
+applications to your local backend the moment it detects one — it never fills
+out or submits anything on your behalf (see `CLAUDE.md` §2/§6).
+
+```bash
+npm run build --workspace extension   # produces extension/dist
+```
+
+Load it unpacked in Chrome:
+
+1. Go to `chrome://extensions`, enable **Developer mode**.
+2. **Load unpacked** → select `extension/dist`.
+3. Make sure the backend is running (`npm run dev:backend` or `npm run dev`).
+
+What it does today:
+
+- **Indeed Apply / smartapply.indeed.com** (in-platform): logged as `applied` once
+  the confirmation screen appears.
+- **Apply on company site** (external redirect): logged immediately as
+  `pending_confirmation` — Indeed itself can't see whether the user actually
+  finished the form on the employer's site, so neither can we.
+- **Manual fallback**: right-click a job page → "Mark this job as applied".
+
+Selectors and confirmation text are isolated in
+`extension/src/shared/selectors/indeed.json` — when Indeed changes its markup
+(it will), fix the JSON, not the content script.
 
 ## Configuration
 

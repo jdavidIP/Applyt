@@ -6,13 +6,15 @@
   "license": "MIT",
   "workspaces": [
     "backend",
-    "dashboard"
+    "dashboard",
+    "extension"
   ],
   "scripts": {
     "dev": "concurrently -n backend,dashboard -c blue,magenta \"npm:dev:backend\" \"npm:dev:dashboard\"",
     "dev:backend": "npm run dev --workspace backend",
     "dev:dashboard": "npm run dev --workspace dashboard",
-    "build": "npm run build --workspace backend && npm run build --workspace dashboard",
+    "dev:extension": "npm run dev --workspace extension",
+    "build": "npm run build --workspace backend && npm run build --workspace dashboard && npm run build --workspace extension",
     "test": "npm test --workspace backend"
   },
   "devDependencies": {
