@@ -5,10 +5,14 @@ import type { Application, ApplicationInput, Filters } from './types';
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  // Only declare a JSON content-type when we're actually sending a body.
+  // A bodyless request (GET/DELETE) that sets Content-Type: application/json
+  // makes Fastify reject it with FST_ERR_CTP_EMPTY_JSON_BODY.
+  const headers = new Headers(init?.headers);
+  if (init?.body != null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     let detail = res.statusText;
     try {
