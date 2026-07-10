@@ -35,6 +35,22 @@ const CSV_COLUMNS: (keyof Application)[] = [
   'updated_at',
 ];
 
+// Statuses an automatic/manual re-detection of a job is allowed to set. A user's
+// later lifecycle changes (interviewing/rejected/offer/ghosted/stale) must NOT be
+// clobbered by a subsequent re-detect of the same posting.
+const AUTO_STATUSES = new Set(['applied', 'pending_confirmation']);
+
+// Resolve the status when an already-known job is reported again.
+function mergeStatus(existing: string, incoming: string): string {
+  // Preserve a user-advanced lifecycle status — never regress it.
+  if (!AUTO_STATUSES.has(existing)) return existing;
+  // Both are auto-ish: a confirmed 'applied' outranks 'pending_confirmation',
+  // so promote (e.g. external redirect → user "Mark as applied") but never
+  // downgrade a job already marked applied back to pending.
+  if (existing === 'applied' || incoming === 'applied') return 'applied';
+  return incoming;
+}
+
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return '';
   const s = String(value);
@@ -120,6 +136,39 @@ export default async function applicationsRoutes(
       const apply_method = b.apply_method ?? (platform === 'manual' ? 'manual' : 'in_platform');
       const status = b.status ?? 'applied';
       const date_applied = b.date_applied ?? now;
+
+      // De-duplicate on job identity. A single posting can legitimately be
+      // reported more than once — e.g. an external redirect logged as
+      // pending_confirmation, then the user right-clicks "Mark as applied", or
+      // the extension re-fires on the same jk. When a row already exists for the
+      // same platform + platform_job_id, update it in place instead of inserting
+      // a copy. (No platform_job_id — e.g. a manual dashboard add — always inserts.)
+      if (b.platform_job_id) {
+        const existing = db
+          .prepare('SELECT * FROM applications WHERE platform = ? AND platform_job_id = ?')
+          .get(platform, b.platform_job_id) as Application | undefined;
+        if (existing) {
+          db.prepare(
+            `UPDATE applications
+                SET status = @status,
+                    job_url = COALESCE(job_url, @job_url),
+                    apply_method = COALESCE(apply_method, @apply_method),
+                    date_last_updated = @now,
+                    updated_at = @now
+              WHERE id = @id`,
+          ).run({
+            status: mergeStatus(existing.status, status),
+            job_url: b.job_url ?? null,
+            apply_method,
+            now,
+            id: existing.id,
+          });
+          const updated = db
+            .prepare('SELECT * FROM applications WHERE id = ?')
+            .get(existing.id) as Application;
+          return reply.code(200).send(updated);
+        }
+      }
 
       const info = db
         .prepare(

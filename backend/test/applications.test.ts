@@ -81,6 +81,94 @@ test('POST rejects missing required fields', async () => {
   assert.equal(res.statusCode, 400);
 });
 
+test('POST with an existing platform+platform_job_id updates instead of duplicating', async () => {
+  // External redirect logged as pending_confirmation…
+  const first = await createSample({
+    platform_job_id: 'dupe1',
+    apply_method: 'external_redirect',
+    status: 'pending_confirmation',
+  });
+
+  // …then the user right-clicks "Mark as applied" for the same posting.
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: {
+      company: 'Acme Corp',
+      title: 'Software Engineer',
+      platform: 'indeed',
+      platform_job_id: 'dupe1',
+      apply_method: 'manual',
+      status: 'applied',
+    },
+  });
+  assert.equal(res.statusCode, 200); // updated, not created
+  const updated = res.json() as Application;
+  assert.equal(updated.id, first.id); // same row
+  assert.equal(updated.status, 'applied'); // promoted from pending_confirmation
+
+  const all = await app.inject({ method: 'GET', url: '/applications' });
+  assert.equal((all.json() as Application[]).length, 1); // no duplicate
+});
+
+test('POST re-detect never downgrades applied → pending_confirmation', async () => {
+  const first = await createSample({ platform_job_id: 'dupe2', status: 'applied' });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: {
+      company: 'Acme Corp',
+      title: 'Software Engineer',
+      platform: 'indeed',
+      platform_job_id: 'dupe2',
+      apply_method: 'external_redirect',
+      status: 'pending_confirmation',
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal((res.json() as Application).id, first.id);
+  assert.equal((res.json() as Application).status, 'applied'); // kept, not downgraded
+});
+
+test('POST re-detect does not clobber a user-set lifecycle status', async () => {
+  const first = await createSample({ platform_job_id: 'dupe3', status: 'applied' });
+  await app.inject({
+    method: 'PATCH',
+    url: `/applications/${first.id}`,
+    payload: { status: 'interviewing' },
+  });
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: {
+      company: 'Acme Corp',
+      title: 'Software Engineer',
+      platform: 'indeed',
+      platform_job_id: 'dupe3',
+      apply_method: 'in_platform',
+      status: 'applied',
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal((res.json() as Application).status, 'interviewing'); // preserved
+});
+
+test('POST without platform_job_id always inserts (no dedupe)', async () => {
+  await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: { company: 'Solo Inc', title: 'Designer' },
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: { company: 'Solo Inc', title: 'Designer' },
+  });
+  const all = await app.inject({ method: 'GET', url: '/applications' });
+  assert.equal((all.json() as Application[]).length, 2);
+});
+
 test('GET lists applications and filters by platform and status', async () => {
   await createSample({ platform: 'indeed', status: 'applied' });
   await createSample({ platform: 'linkedin', status: 'interviewing', apply_method: 'in_platform' });
@@ -142,8 +230,8 @@ test('DELETE on a missing id returns 404', async () => {
 });
 
 test('CSV export returns a header, all rows, and escapes special characters', async () => {
-  await createSample({ company: 'Normal Co' });
-  await createSample({ company: 'Comma, Inc', notes: 'He said "hi"\nnew line' });
+  await createSample({ company: 'Normal Co', platform_job_id: 'csv1' });
+  await createSample({ company: 'Comma, Inc', platform_job_id: 'csv2', notes: 'He said "hi"\nnew line' });
 
   const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
   assert.equal(res.statusCode, 200);
