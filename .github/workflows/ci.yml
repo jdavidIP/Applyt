@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Installs all workspaces from the root lockfile. better-sqlite3 is a
+      # native module, so this also verifies it compiles on a clean machine.
+      - name: Install dependencies
+        run: npm ci
+
+      # Backend node:test suite (the only tests today; see package.json "test").
+      - name: Run tests
+        run: npm test
+
+      # Compiles all three workspaces (backend tsc, dashboard + extension via
+      # Vite) — catches TypeScript breakage the local backend tests don't.
+      - name: Build all workspaces
+        run: npm run build
