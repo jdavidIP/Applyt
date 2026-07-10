@@ -25,6 +25,28 @@ export async function buildApp(db: Database.Database): Promise<FastifyInstance> 
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   });
 
+  // Fastify's default JSON parser 400s on an empty body even when no route
+  // needs one (e.g. DELETE) — a client that sends Content-Type: application/json
+  // out of habit shouldn't be rejected for omitting a body nothing requires.
+  // Routes with a required body schema (POST/PATCH) still reject `undefined`
+  // via their own validation.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      const str = body as string;
+      if (str.length === 0) {
+        done(null, undefined);
+        return;
+      }
+      try {
+        done(null, JSON.parse(str));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
   app.get('/health', async () => ({ status: 'ok' }));
 
   await app.register(applicationsRoutes, { db });

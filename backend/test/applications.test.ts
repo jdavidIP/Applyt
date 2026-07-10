@@ -224,6 +224,19 @@ test('DELETE removes a row', async () => {
   assert.equal(get.statusCode, 404);
 });
 
+test('DELETE succeeds even with a Content-Type: application/json header and no body', async () => {
+  // Regression: the dashboard's fetch wrapper used to set Content-Type:
+  // application/json on every request, including bodyless DELETE. Fastify's
+  // JSON body parser must not choke on that combination (FST_ERR_CTP_EMPTY_JSON_BODY).
+  const created = await createSample();
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/applications/${created.id}`,
+    headers: { 'content-type': 'application/json' },
+  });
+  assert.equal(res.statusCode, 204);
+});
+
 test('DELETE on a missing id returns 404', async () => {
   const res = await app.inject({ method: 'DELETE', url: '/applications/99999' });
   assert.equal(res.statusCode, 404);

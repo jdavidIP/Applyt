@@ -15,7 +15,7 @@
     "dev:dashboard": "npm run dev --workspace dashboard",
     "dev:extension": "npm run dev --workspace extension",
     "build": "npm run build --workspace backend && npm run build --workspace dashboard && npm run build --workspace extension",
-    "test": "npm test --workspace backend"
+    "test": "npm test --workspace backend && npm test --workspace dashboard"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
