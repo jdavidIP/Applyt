@@ -24,6 +24,13 @@
     ".jobsearch-IndeedApplyButton-newDesign a[href]"
   ],
 
+  "externalApplyTextMatches": [
+    "apply on company site",
+    "apply on employer site",
+    "apply on company website",
+    "apply on company's website"
+  ],
+
   "confirmationContainerSelectors": ["#ia-container", "main", "#appcontent", "body"],
 
   "confirmationTextMatches": [

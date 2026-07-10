@@ -189,37 +189,73 @@ function attachInPlatformApplyListener(): void {
 }
 
 // ---- Step 2b: external "Apply on company site" clicks ----
-function attachExternalApplyListener(): void {
-  const jk = currentJobKey();
-  if (!jk) return;
+// Unlike in-platform applies, an external redirect has NO confirmation we can
+// observe — the user leaves Indeed for the employer's site — so the click is
+// the only signal. Detect it by the button's *text* via delegation on the
+// document, which is far more resilient to Indeed's markup churn than pinning
+// specific class/testid selectors (per CLAUDE.md §6), and works whether the
+// button is on the job page or inside an apply iframe (all_frames runs us in
+// every frame).
+let lastExternalClickAt = 0;
 
-  let bound = 0;
-  for (const sel of selectors.externalApplyButtonSelectors) {
-    document.querySelectorAll<HTMLAnchorElement>(sel).forEach((link) => {
-      if (link.dataset.applytBound) return;
-      link.dataset.applytBound = 'true';
-      bound += 1;
-      link.addEventListener('click', () => {
-        const title = textOf(firstMatch(selectors.jobTitleSelectors));
-        const company = textOf(firstMatch(selectors.companySelectors));
-        if (!title || !company) return;
-        void (async () => {
-          if (await alreadySubmitted(jk)) return;
-          await markSubmitted(jk);
-          report({
-            platform: 'indeed',
-            company,
-            title,
-            job_url: canonicalJobUrl(jk, location.href),
-            platform_job_id: jk,
-            apply_method: 'external_redirect',
-            status: 'pending_confirmation',
-          });
-        })();
-      });
-    });
+async function reportExternalApply(jk: string | undefined): Promise<void> {
+  // Prefer the live job-page DOM; fall back to the last viewed job for the
+  // iframe case, where the button has no job DOM and the URL has no jk.
+  let title = textOf(firstMatch(selectors.jobTitleSelectors));
+  let company = textOf(firstMatch(selectors.companySelectors));
+  let jobUrl = canonicalJobUrl(jk, location.href);
+  let resolvedJk = jk;
+  if (!title || !company) {
+    const last = await getLastViewedJob();
+    if (last) {
+      title = title || last.title;
+      company = company || last.company;
+      resolvedJk = resolvedJk ?? last.jk;
+      jobUrl = last.job_url ?? jobUrl;
+    }
   }
-  if (bound > 0) log('attachExternalApplyListener: bound', bound, 'link(s)');
+  if (!title || !company) {
+    log('external apply click but no title/company resolved — dropping');
+    return;
+  }
+
+  const dedupeKey = resolvedJk ?? `${company}:${title}`;
+  if (await alreadySubmitted(dedupeKey)) {
+    log('external apply already reported, skipping', dedupeKey);
+    return;
+  }
+  await markSubmitted(dedupeKey);
+  report({
+    platform: 'indeed',
+    company,
+    title,
+    job_url: jobUrl,
+    platform_job_id: resolvedJk,
+    apply_method: 'external_redirect',
+    status: 'pending_confirmation',
+  });
+}
+
+function attachExternalApplyDelegation(): void {
+  document.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target as Element | null;
+      const el = target?.closest?.('a, button, [role="button"]');
+      if (!el) return;
+      const text = (el.textContent ?? '').trim().toLowerCase();
+      if (!text) return;
+      if (!selectors.externalApplyTextMatches.some((phrase) => text.includes(phrase))) return;
+
+      const now = Date.now();
+      if (now - lastExternalClickAt < 3000) return; // debounce accidental double-fire
+      lastExternalClickAt = now;
+
+      log('external apply click detected via text:', text);
+      void reportExternalApply(currentJobKey());
+    },
+    true, // capture phase — fire before the page's own handler navigates away
+  );
 }
 
 // ---- Step 3: in-platform confirmation detection (smartapply + in-page modal) ----
@@ -321,7 +357,7 @@ function init(): void {
   log('content script loaded in frame', location.href);
   captureJobPageMeta();
   attachInPlatformApplyListener();
-  attachExternalApplyListener();
+  attachExternalApplyDelegation();
   attachManualMarkListener();
   observeForConfirmation();
 
@@ -334,7 +370,8 @@ function init(): void {
       lastUrl = location.href;
       captureJobPageMeta();
       attachInPlatformApplyListener();
-      attachExternalApplyListener();
+      // External-apply detection is a document-level delegated listener
+      // attached once in init(); it survives SPA navigation, no rebind needed.
     }
   }).observe(document.body, { childList: true, subtree: true });
 }
