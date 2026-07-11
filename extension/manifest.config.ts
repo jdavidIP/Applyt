@@ -38,11 +38,17 @@ export default defineManifest({
       // all_frames, the confirmation screen inside that iframe is never seen.
       all_frames: true,
     },
+    {
+      matches: ['*://www.linkedin.com/jobs/*'],
+      js: ['src/content/linkedin.ts'],
+      run_at: 'document_idle',
+    },
   ],
   permissions: ['contextMenus', 'storage'],
   host_permissions: [
     '*://*.indeed.com/*',
     '*://smartapply.indeed.com/*',
+    '*://www.linkedin.com/*',
     'http://127.0.0.1:4317/*',
     'http://localhost:4317/*',
   ],

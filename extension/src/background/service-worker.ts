@@ -14,7 +14,11 @@ chrome.runtime.onInstalled.addListener(() => {
     id: MARK_APPLIED_MENU_ID,
     title: 'Mark this job as applied (Applyt)',
     contexts: ['page'],
-    documentUrlPatterns: ['*://*.indeed.com/*', '*://smartapply.indeed.com/*'],
+    documentUrlPatterns: [
+      '*://*.indeed.com/*',
+      '*://smartapply.indeed.com/*',
+      '*://www.linkedin.com/jobs/*',
+    ],
   });
 });
 

@@ -1,0 +1,28 @@
+{
+  "_comment": "LinkedIn ships fully hashed/atomized CSS class names on this view (e.g. 'aa26e2c6', '_4946ed03') with zero semantic meaning — not just churn-prone, but useless for selectors entirely. Title/company are resolved primarily from document.title (see parseFromDocumentTitle in linkedin.ts); these selectors are a last-resort fallback. Prefer aria-label / attribute-based selectors (href*='/company/') over class names, which can change on every deploy.",
+
+  "jobTitleSelectors": [
+    "h1.job-details-jobs-unified-top-card__job-title",
+    ".job-details-jobs-unified-top-card__job-title-link",
+    "h1.jobs-unified-top-card__job-title",
+    "h1"
+  ],
+
+  "companySelectors": [
+    "a[href*='/company/']",
+    ".job-details-jobs-unified-top-card__company-name a",
+    ".job-details-jobs-unified-top-card__company-name",
+    ".jobs-unified-top-card__company-name a",
+    ".jobs-unified-top-card__company-name"
+  ],
+
+  "easyApplyTextMatches": ["easy apply"],
+
+  "externalApplyTextMatches": ["apply on company website", "apply on company site"],
+
+  "confirmationTextMatches": [
+    "your application was sent",
+    "application sent",
+    "your application has been submitted"
+  ]
+}
