@@ -1,0 +1,25 @@
+{
+  "_comment": "Verified live 2026-07-11 (glassdoor.ca, jobs split-pane view). CRITICAL scoping rule: on the jobs page there is a left list of many job cards AND a right detail pane showing the currently-OPEN job. A global querySelector for a company/id class matches the FIRST left-list card, NOT the open job — this caused applications to be attributed to whichever job auto-opened on page load. The fix is that all selectors below target elements that exist ONLY in the detail pane: 'JobDetails_employerAndJobTitle' (the header block wrapping the open job's employer h4 + title h1) and the h1's own id 'jd-job-title-{listingId}'. Glassdoor uses CSS Modules (stable readable prefix, churning hash suffix), so '[class*=\"prefix\"]' partial matches are the right tool. Do NOT reintroduce a bare '[class*=\"EmployerName\"]' selector — that matches the left-list compact cards and reopens the wrong-job bug.",
+
+  "jobTitleSelectors": [
+    "[id^='jd-job-title-']",
+    "[class*='JobDetails_employerAndJobTitle'] h1",
+    "h1"
+  ],
+
+  "companySelectors": [
+    "[class*='JobDetails_employerAndJobTitle'] [class*='employerNameHeading']",
+    "[class*='JobDetails_employerAndJobTitle'] h4"
+  ],
+
+  "easyApplyTextMatches": ["easy apply"],
+
+  "externalApplyTextMatches": ["apply now", "apply on company site", "apply on employer site"],
+
+  "confirmationTextMatches": [
+    "your application has been successfully submitted",
+    "application submitted",
+    "your application has been submitted",
+    "application sent"
+  ]
+}

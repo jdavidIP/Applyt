@@ -274,53 +274,57 @@ function allReachableText(): string {
 function observeForConfirmation(): void {
   log('observeForConfirmation: watching document body + shadow roots');
 
-  let handled = false;
+  // in-flight lock, NOT a one-shot "already handled this page" latch: it's
+  // held only for the duration of processing a single match, then released —
+  // so a later, genuinely different Easy Apply click (fresh applyInProgress)
+  // on the same long-lived search-results page can still be caught.
+  let processing = false;
   const observedShadowRoots = new Set<ShadowRoot>();
 
   const tryHandleConfirmation = (): void => {
-    if (handled) return;
+    if (processing) return;
     if (!looksLikeConfirmation(allReachableText())) return;
-    handled = true;
-    log('observeForConfirmation: confirmation text matched');
+    processing = true; // set synchronously, before any await, to close the race window
 
-    const jobId = currentJobId();
     void (async () => {
-      // Resolve which job this confirmation belongs to, most-trusted first:
-      //   1. applyInProgress — frozen when the user clicked Easy Apply; the
-      //      reliable signal of intent, immune to split-pane re-scroll.
-      //   2. lastViewedJob — best-effort fallback if the click was missed.
-      //   3. live DOM scrape — works if the top card is still on screen.
-      const cached = (await getApplyInProgress()) ?? (await getLastViewedJob());
-      const live = resolveTitleAndCompany();
-      const title = cached?.title || live.title;
-      const company = cached?.company || live.company;
-      if (!title || !company) {
-        log('confirmation matched but no title/company resolved — dropping', { jobId, cached });
-        // Reset so a later, resolvable confirmation in the same session isn't
-        // permanently blocked by this one unresolved attempt.
-        handled = false;
-        return;
+      try {
+        // Requiring applyInProgress is deliberate and load-bearing: on a
+        // long-lived split-pane search-results page, confirmation-like text
+        // can linger or reappear (a toast that faded but stayed in the DOM,
+        // an unrelated re-render) long after the real apply completed.
+        // Falling back to "last viewed job" here — merely browsing, not
+        // applying — caused a real Glassdoor application to be misattributed
+        // to unrelated jobs the user viewed afterward; the same architecture
+        // is used here, so the same fix applies. See extension-detection-notes
+        // memory for the live incident this fixes.
+        const applyState = await getApplyInProgress();
+        if (!applyState) {
+          log('confirmation-like text seen but no in-flight apply click — ignoring');
+          return;
+        }
+
+        const jobId = currentJobId() ?? applyState.jobId;
+
+        // No client-side dedupe cache: the backend upserts on
+        // platform+platform_job_id, so a repeat report merges into the
+        // existing row instead of duplicating, and still re-records correctly
+        // if the user deleted that row from the dashboard and applied again.
+        report({
+          platform: 'linkedin',
+          company: applyState.company,
+          title: applyState.title,
+          job_url: applyState.job_url,
+          platform_job_id: jobId,
+          apply_method: 'in_platform',
+          status: 'applied',
+        });
+
+        // The application is recorded — this apply flow is done. Clear the
+        // frozen record so it can't leak into an unrelated confirmation later.
+        await clearApplyInProgress();
+      } finally {
+        processing = false;
       }
-
-      const resolvedJobId = jobId ?? cached?.jobId;
-
-      // No client-side dedupe cache: the backend upserts on
-      // platform+platform_job_id, so a repeat report merges into the
-      // existing row instead of duplicating, and still re-records correctly
-      // if the user deleted that row from the dashboard and applied again.
-      report({
-        platform: 'linkedin',
-        company,
-        title,
-        job_url: cached?.job_url ?? canonicalJobUrl(resolvedJobId, location.href),
-        platform_job_id: resolvedJobId,
-        apply_method: 'in_platform',
-        status: 'applied',
-      });
-
-      // The application is recorded — this apply flow is done. Clear the
-      // frozen record so it can't leak into an unrelated confirmation later.
-      await clearApplyInProgress();
     })();
   };
 

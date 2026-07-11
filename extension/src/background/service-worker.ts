@@ -1,4 +1,5 @@
 import { postApplication } from '../shared/backend';
+import { GLASSDOOR_MATCHES } from '../shared/glassdoor-domains';
 import type { DetectedApplication, RuntimeMessage } from '../shared/types';
 
 function log(...args: unknown[]): void {
@@ -18,6 +19,7 @@ chrome.runtime.onInstalled.addListener(() => {
       '*://*.indeed.com/*',
       '*://smartapply.indeed.com/*',
       '*://www.linkedin.com/jobs/*',
+      ...GLASSDOOR_MATCHES,
     ],
   });
 });

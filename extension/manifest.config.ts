@@ -1,5 +1,6 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 import pkg from './package.json';
+import { GLASSDOOR_MATCHES } from './src/shared/glassdoor-domains';
 
 // Manifest V3. Per CLAUDE.md: this extension only *observes* the user's own
 // apply actions via content scripts reacting to DOM changes — no scripting
@@ -31,7 +32,13 @@ export default defineManifest({
   content_scripts: [
     {
       matches: ['*://*.indeed.com/*', '*://smartapply.indeed.com/*'],
-      js: ['src/content/indeed.ts'],
+      // Both indeed.ts and glassdoor.ts run in this frame: Glassdoor's synced-
+      // profile Easy Apply reportedly runs through Indeed's own smartapply
+      // form under the hood (CLAUDE.md §6), so glassdoor.ts also needs to see
+      // this iframe to resolve its own glassdoorApplyInProgress cache there.
+      // Each script only acts on its own platform-scoped storage keys, so
+      // running both is harmless if that turns out not to be the actual path.
+      js: ['src/content/indeed.ts', 'src/content/glassdoor.ts'],
       run_at: 'document_idle',
       // Indeed Apply frequently renders as an in-page iframe pointing at
       // smartapply.indeed.com rather than a top-level navigation — without
@@ -43,12 +50,18 @@ export default defineManifest({
       js: ['src/content/linkedin.ts'],
       run_at: 'document_idle',
     },
+    {
+      matches: GLASSDOOR_MATCHES,
+      js: ['src/content/glassdoor.ts'],
+      run_at: 'document_idle',
+    },
   ],
   permissions: ['contextMenus', 'storage'],
   host_permissions: [
     '*://*.indeed.com/*',
     '*://smartapply.indeed.com/*',
     '*://www.linkedin.com/*',
+    ...GLASSDOOR_MATCHES,
     'http://127.0.0.1:4317/*',
     'http://localhost:4317/*',
   ],

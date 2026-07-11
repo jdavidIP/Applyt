@@ -251,56 +251,72 @@ function observeForConfirmation(): void {
   const container = firstMatch(selectors.confirmationContainerSelectors) ?? document.body;
   log('observeForConfirmation: watching container', container, 'in frame', location.href);
 
-  let handled = false;
+  // in-flight lock, NOT a one-shot "already handled this page" latch: it's
+  // held only for the duration of processing a single match, then released —
+  // so a later, genuinely different Apply click (fresh applyInProgress) on
+  // the same long-lived page (e.g. a search-results listing) can still be
+  // caught.
+  let processing = false;
   const tryHandleConfirmation = (): void => {
-    if (handled) return;
+    if (processing) return;
     if (!looksLikeConfirmation(container.textContent ?? '')) return;
-    handled = true;
-    log('observeForConfirmation: confirmation text matched in', location.href);
+    processing = true; // set synchronously, before any await, to close the race window
 
-    const jk = currentJobKey();
     void (async () => {
-      // Resolve which job this confirmation belongs to, most-trusted first:
-      //   1. jk-keyed cache — exact, but the smartapply frame rarely has a jk.
-      //   2. applyInProgress — frozen when the user clicked Apply; the reliable
-      //      signal of intent, immune to post-apply same-company navigation.
-      //   3. lastViewedJob — best-effort fallback if the Apply click was missed.
-      //   4. live DOM scrape — only works for an in-page modal on indeed.com.
-      const cached =
-        (jk ? await getCachedJobMeta(jk) : undefined) ??
-        (await getApplyInProgress()) ??
-        (await getLastViewedJob());
-      const title = cached?.title || textOf(firstMatch(selectors.jobTitleSelectors));
-      const company = cached?.company || textOf(firstMatch(selectors.companySelectors));
-      if (!title || !company) {
-        log('confirmation matched but no title/company resolved — dropping', {
-          jk,
-          cached,
-          title,
+      try {
+        // Requiring applyInProgress is deliberate and load-bearing: on a
+        // long-lived listing page, confirmation-like text can linger or
+        // reappear (a toast that faded but stayed in the DOM, an unrelated
+        // re-render) long after the real apply completed. Falling back to
+        // jk-cache/"last viewed job" here — merely having viewed a job, not
+        // applied to it — caused a real Glassdoor application to be
+        // misattributed to unrelated jobs viewed afterward; the same
+        // architecture is used here, so the same fix applies. jk-keyed cache
+        // is still used to fill in details applyInProgress might be missing
+        // (e.g. a canonical jk when the click happened off the job page),
+        // but is no longer a substitute for a genuine in-flight click. See
+        // extension-detection-notes memory for the live incident this fixes.
+        const applyState = await getApplyInProgress();
+        if (!applyState) {
+          log('confirmation-like text seen but no in-flight apply click — ignoring');
+          return;
+        }
+
+        const jk = currentJobKey();
+        const cachedByJk = jk ? await getCachedJobMeta(jk) : undefined;
+        const title = applyState.title || cachedByJk?.title;
+        const company = applyState.company || cachedByJk?.company;
+        if (!title || !company) {
+          log('confirmation matched but no title/company resolved — dropping', {
+            jk,
+            applyState,
+            cachedByJk,
+          });
+          return;
+        }
+
+        const resolvedJk = jk ?? applyState.jk ?? cachedByJk?.jk;
+
+        // No client-side dedupe cache: the backend upserts on
+        // platform+platform_job_id, so a repeat report merges into the
+        // existing row instead of duplicating, and still re-records correctly
+        // if the user deleted that row from the dashboard and applied again.
+        report({
+          platform: 'indeed',
           company,
+          title,
+          job_url: applyState.job_url ?? canonicalJobUrl(resolvedJk, location.href),
+          platform_job_id: resolvedJk,
+          apply_method: 'in_platform',
+          status: 'applied',
         });
-        return;
+
+        // The application is recorded — this apply flow is done. Clear the frozen
+        // record so it can't leak into an unrelated confirmation later.
+        await clearApplyInProgress();
+      } finally {
+        processing = false;
       }
-
-      const resolvedJk = jk ?? cached?.jk;
-
-      // No client-side dedupe cache: the backend upserts on
-      // platform+platform_job_id, so a repeat report merges into the
-      // existing row instead of duplicating, and still re-records correctly
-      // if the user deleted that row from the dashboard and applied again.
-      report({
-        platform: 'indeed',
-        company,
-        title,
-        job_url: cached?.job_url ?? canonicalJobUrl(resolvedJk, location.href),
-        platform_job_id: resolvedJk,
-        apply_method: 'in_platform',
-        status: 'applied',
-      });
-
-      // The application is recorded — this apply flow is done. Clear the frozen
-      // record so it can't leak into an unrelated confirmation later.
-      await clearApplyInProgress();
     })();
   };
 
