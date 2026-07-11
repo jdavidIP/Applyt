@@ -117,21 +117,6 @@ async function clearStaleApplyInProgress(currentJk: string | undefined): Promise
   }
 }
 
-async function alreadySubmitted(jk: string): Promise<boolean> {
-  const { submittedJobIds } = await chrome.storage.local.get('submittedJobIds');
-  return Array.isArray(submittedJobIds) && submittedJobIds.includes(jk);
-}
-
-async function markSubmitted(jk: string): Promise<void> {
-  const { submittedJobIds } = await chrome.storage.local.get('submittedJobIds');
-  const ids: string[] = Array.isArray(submittedJobIds) ? submittedJobIds : [];
-  if (!ids.includes(jk)) {
-    // Cap so this doesn't grow unbounded over months of use.
-    const next = [...ids, jk].slice(-500);
-    await chrome.storage.local.set({ submittedJobIds: next });
-  }
-}
-
 function report(payload: DetectedApplication): void {
   log('reporting detected application', payload);
   const message: RuntimeMessage = { type: 'APPLICATION_DETECTED', payload };
@@ -219,12 +204,10 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
     return;
   }
 
-  const dedupeKey = resolvedJk ?? `${company}:${title}`;
-  if (await alreadySubmitted(dedupeKey)) {
-    log('external apply already reported, skipping', dedupeKey);
-    return;
-  }
-  await markSubmitted(dedupeKey);
+  // No client-side dedupe cache here: the backend upserts on
+  // platform+platform_job_id, so a repeat report merges into the existing
+  // row instead of duplicating — and, crucially, still re-records correctly
+  // if the user deleted that row from the dashboard and applied again.
   report({
     platform: 'indeed',
     company,
@@ -300,13 +283,11 @@ function observeForConfirmation(): void {
       }
 
       const resolvedJk = jk ?? cached?.jk;
-      const dedupeKey = resolvedJk ?? `${company}:${title}`;
-      if (await alreadySubmitted(dedupeKey)) {
-        log('confirmation already submitted, skipping', dedupeKey);
-        return;
-      }
-      await markSubmitted(dedupeKey);
 
+      // No client-side dedupe cache: the backend upserts on
+      // platform+platform_job_id, so a repeat report merges into the
+      // existing row instead of duplicating, and still re-records correctly
+      // if the user deleted that row from the dashboard and applied again.
       report({
         platform: 'indeed',
         company,

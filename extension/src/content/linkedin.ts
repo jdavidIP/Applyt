@@ -121,21 +121,6 @@ async function clearApplyInProgress(): Promise<void> {
   await chrome.storage.local.remove(APPLY_IN_PROGRESS_KEY);
 }
 
-async function alreadySubmitted(jobId: string): Promise<boolean> {
-  const { linkedinSubmittedJobIds } = await chrome.storage.local.get('linkedinSubmittedJobIds');
-  return Array.isArray(linkedinSubmittedJobIds) && linkedinSubmittedJobIds.includes(jobId);
-}
-
-async function markSubmitted(jobId: string): Promise<void> {
-  const { linkedinSubmittedJobIds } = await chrome.storage.local.get('linkedinSubmittedJobIds');
-  const ids: string[] = Array.isArray(linkedinSubmittedJobIds) ? linkedinSubmittedJobIds : [];
-  if (!ids.includes(jobId)) {
-    // Cap so this doesn't grow unbounded over months of use.
-    const next = [...ids, jobId].slice(-500);
-    await chrome.storage.local.set({ linkedinSubmittedJobIds: next });
-  }
-}
-
 function report(payload: DetectedApplication): void {
   log('reporting detected application', payload);
   const message: RuntimeMessage = { type: 'APPLICATION_DETECTED', payload };
@@ -201,12 +186,10 @@ async function reportExternalApply(jobId: string | undefined): Promise<void> {
     return;
   }
 
-  const dedupeKey = resolvedJobId ?? `${company}:${title}`;
-  if (await alreadySubmitted(dedupeKey)) {
-    log('external apply already reported, skipping', dedupeKey);
-    return;
-  }
-  await markSubmitted(dedupeKey);
+  // No client-side dedupe cache here: the backend upserts on
+  // platform+platform_job_id, so a repeat report merges into the existing
+  // row instead of duplicating — and, crucially, still re-records correctly
+  // if the user deleted that row from the dashboard and applied again.
   report({
     platform: 'linkedin',
     company,
@@ -320,13 +303,11 @@ function observeForConfirmation(): void {
       }
 
       const resolvedJobId = jobId ?? cached?.jobId;
-      const dedupeKey = resolvedJobId ?? `${company}:${title}`;
-      if (await alreadySubmitted(dedupeKey)) {
-        log('confirmation already submitted, skipping', dedupeKey);
-        return;
-      }
-      await markSubmitted(dedupeKey);
 
+      // No client-side dedupe cache: the backend upserts on
+      // platform+platform_job_id, so a repeat report merges into the
+      // existing row instead of duplicating, and still re-records correctly
+      // if the user deleted that row from the dashboard and applied again.
       report({
         platform: 'linkedin',
         company,
