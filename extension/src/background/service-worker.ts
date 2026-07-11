@@ -1,10 +1,9 @@
 import { postApplication } from '../shared/backend';
+import { createLogger } from '../shared/debug';
 import { GLASSDOOR_MATCHES } from '../shared/glassdoor-domains';
 import type { DetectedApplication, RuntimeMessage } from '../shared/types';
 
-function log(...args: unknown[]): void {
-  console.info('[Applyt:bg]', ...args);
-}
+const log = createLogger('[Applyt:bg]');
 
 const MARK_APPLIED_MENU_ID = 'applyt-mark-as-applied';
 

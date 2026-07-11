@@ -1,4 +1,5 @@
 import selectors from '../shared/selectors/linkedin.json';
+import { createLogger } from '../shared/debug';
 import type { DetectedApplication, RuntimeMessage } from '../shared/types';
 
 // Runs on linkedin.com/jobs/* (see manifest.config.ts).
@@ -55,11 +56,7 @@ function resolveTitleAndCompany(): { title: string; company: string } {
   };
 }
 
-function log(...args: unknown[]): void {
-  // console.info (not console.debug) — console.debug renders at DevTools'
-  // "Verbose" level, which is hidden by default, so those lines were invisible.
-  console.info('[Applyt]', ...args);
-}
+const log = createLogger('[Applyt]');
 
 function extractJobId(url: string): string | undefined {
   try {

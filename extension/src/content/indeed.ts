@@ -1,4 +1,5 @@
 import selectors from '../shared/selectors/indeed.json';
+import { createLogger } from '../shared/debug';
 import type { DetectedApplication, RuntimeMessage } from '../shared/types';
 
 // Runs on *.indeed.com and smartapply.indeed.com (see manifest.config.ts).
@@ -30,11 +31,7 @@ function textOf(el: Element | null): string {
   return el?.textContent?.trim() ?? '';
 }
 
-function log(...args: unknown[]): void {
-  // console.info (not console.debug) — console.debug renders at DevTools'
-  // "Verbose" level, which is hidden by default, so those lines were invisible.
-  console.info('[Applyt]', ...args);
-}
+const log = createLogger('[Applyt]');
 
 function extractJobKey(url: string): string | undefined {
   try {
