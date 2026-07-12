@@ -12,6 +12,10 @@
     "[class*='JobDetails_employerAndJobTitle'] h4"
   ],
 
+  "jobDescriptionSelectors": [
+    "[class*='JobDetails_jobDescription']"
+  ],
+
   "easyApplyTextMatches": ["easy apply"],
 
   "externalApplyTextMatches": ["apply now", "apply on company site", "apply on employer site"],

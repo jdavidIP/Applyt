@@ -16,6 +16,17 @@
     ".jobs-unified-top-card__company-name"
   ],
 
+  "_jobDescriptionComment": "Verified live 2026-07-12. LinkedIn's job description lives under a container whose 'componentkey' attribute is semantic and stable ('JobDetails_AboutTheJob_{jobId}' — only the numeric jobId suffix changes), unlike the fully hashed CSS classes elsewhere on this view. The actual text sits inside a nested '[data-testid=\"expandable-text-box\"]' span — but that data-testid is NOT unique by itself, since LinkedIn reuses it for the 'About the company'/'Commitments' blurbs too. It must stay scoped under the JobDetails_AboutTheJob container. The older '#job-details'/'.jobs-description__content' guesses never matched and are kept only as a last-resort fallback.",
+
+  "jobDescriptionSelectors": [
+    "[componentkey^='JobDetails_AboutTheJob'] [data-testid='expandable-text-box']",
+    "[componentkey^='JobDetails_AboutTheJob']",
+    "#job-details",
+    ".jobs-description__content",
+    ".jobs-box__html-content",
+    ".jobs-description-content__text"
+  ],
+
   "easyApplyTextMatches": ["easy apply"],
 
   "externalApplyTextMatches": ["apply on company website", "apply on company site"],

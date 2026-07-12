@@ -1,4 +1,4 @@
-import { PLATFORMS, APPLY_METHODS, STATUSES } from './types.js';
+import { PLATFORMS, APPLY_METHODS, STATUSES, AI_PROVIDERS } from './types.js';
 
 // Fastify JSON schemas for request bodies/queries. Enum sets are sourced from
 // types.ts so they cannot drift from the domain unions (and, in turn, the SQLite schema).
@@ -19,6 +19,7 @@ export const createApplicationSchema = {
     status: { type: 'string', enum: [...STATUSES] },
     date_applied: { type: 'string', minLength: 1 },
     notes: nullableString,
+    job_description: nullableString,
   },
 } as const;
 
@@ -36,6 +37,21 @@ export const updateApplicationSchema = {
     status: { type: 'string', enum: [...STATUSES] },
     date_applied: { type: 'string', minLength: 1 },
     notes: nullableString,
+    job_description: nullableString,
+  },
+} as const;
+
+export const updateSettingsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    provider: { type: 'string', enum: [...AI_PROVIDERS] },
+    model: { type: 'string', minLength: 1 },
+    // Keys and resume may be set to '' to clear them, so no minLength.
+    anthropicApiKey: { type: 'string' },
+    openaiApiKey: { type: 'string' },
+    baseResume: { type: 'string' },
   },
 } as const;
 

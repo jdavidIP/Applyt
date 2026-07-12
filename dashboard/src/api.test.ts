@@ -103,3 +103,73 @@ describe('api Phase 3 lifecycle functions', () => {
     expect(url).toContain('/applications/stats');
   });
 });
+
+// Phase 4 AI tailoring (CLAUDE.md §7): settings + tailor + resume-versions.
+describe('api Phase 4 tailoring functions', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('getSettings GETs /settings', async () => {
+    const payload = {
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+      baseResume: '',
+      hasAnthropicKey: false,
+      hasOpenaiKey: false,
+    };
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify(payload), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.getSettings();
+    expect(result).toEqual(payload);
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/settings');
+  });
+
+  test('saveSettings PUTs the settings payload as JSON', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ provider: 'openai' }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    await api.saveSettings({ provider: 'openai', model: 'gpt-4o', openaiApiKey: 'sk-x' });
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/settings');
+    expect((init as RequestInit).method).toBe('PUT');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      provider: 'openai',
+      model: 'gpt-4o',
+      openaiApiKey: 'sk-x',
+    });
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  test('tailor POSTs to /applications/:id/tailor with no body', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ id: 1, tailored_output: 'X' }), { status: 201 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.tailor(7);
+    expect(result).toEqual({ id: 1, tailored_output: 'X' });
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/applications/7/tailor');
+    expect((init as RequestInit).method).toBe('POST');
+    // Bodyless POST must not declare a JSON content-type (same guard as DELETE).
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.has('Content-Type')).toBe(false);
+  });
+
+  test('listResumeVersions GETs /applications/:id/resume-versions', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify([]), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    await api.listResumeVersions(7);
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/applications/7/resume-versions');
+  });
+});

@@ -6,6 +6,8 @@ import { AddEditForm } from './components/AddEditForm';
 import { FilterBar } from './components/FilterBar';
 import { ExportButton } from './components/ExportButton';
 import { LifecyclePanel } from './components/LifecyclePanel';
+import { SettingsModal } from './components/SettingsModal';
+import { TailorModal } from './components/TailorModal';
 
 const DEFAULT_FILTERS: Filters = {
   platform: '',
@@ -22,6 +24,8 @@ export default function App() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Application | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tailoring, setTailoring] = useState<Application | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,6 +87,9 @@ export default function App() {
           <p className="subtitle">Your job applications, tracked locally.</p>
         </div>
         <div className="header-actions">
+          <button className="btn btn-secondary" onClick={() => setSettingsOpen(true)}>
+            Settings
+          </button>
           <ExportButton />
           <button
             className="btn btn-primary"
@@ -117,6 +124,7 @@ export default function App() {
             setFormOpen(true);
           }}
           onDelete={handleDelete}
+          onTailor={(app) => setTailoring(app)}
           busyId={busyId}
         />
       )}
@@ -129,6 +137,16 @@ export default function App() {
             setFormOpen(false);
             setEditing(null);
           }}
+        />
+      )}
+
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+
+      {tailoring && (
+        <TailorModal
+          application={tailoring}
+          onClose={() => setTailoring(null)}
+          onTailored={() => void load()}
         />
       )}
     </div>

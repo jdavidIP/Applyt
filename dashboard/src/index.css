@@ -313,8 +313,74 @@ textarea:focus {
   max-width: 620px;
   box-shadow: 0 20px 40px rgba(16, 24, 40, 0.2);
 }
+.modal-wide {
+  max-width: 780px;
+}
 .modal h2 {
   margin: 0 0 16px;
+}
+
+/* Settings + Tailor modals (Phase 4) */
+.settings-hint {
+  margin: -6px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.form-success {
+  color: #15803d;
+  margin: 12px 0 0;
+}
+.banner-warn {
+  background: #fff7e6;
+  color: var(--pending);
+  border: 1px solid #fcd34d;
+}
+.tailor-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.muted-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+.tailor-output {
+  margin-top: 8px;
+}
+.tailor-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.tailor-output textarea {
+  width: 100%;
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.version-list {
+  margin-top: 14px;
+}
+.version-list ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.version-list .btn.is-active {
+  color: var(--text);
+  background: var(--bg);
+}
+.tailored-dot {
+  color: var(--primary);
+  font-size: 9px;
+  margin-left: 5px;
+  vertical-align: middle;
 }
 .form-grid {
   display: grid;

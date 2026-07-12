@@ -59,6 +59,13 @@ interface JobMeta {
   title: string;
   job_url: string;
   jk?: string;
+  job_description?: string;
+}
+
+// Job description text, captured so the user doesn't have to paste it in
+// manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
+function currentJobDescription(): string | undefined {
+  return textOf(firstMatch(selectors.jobDescriptionSelectors)) || undefined;
 }
 
 const LAST_VIEWED_KEY = 'lastViewedJob';
@@ -133,8 +140,9 @@ function captureJobPageMeta(): void {
   const company = textOf(firstMatch(selectors.companySelectors));
 
   if (title && company) {
-    log('captureJobPageMeta: cached', { jk, title, company });
-    cacheJobMeta({ company, title, job_url: canonicalJobUrl(jk, location.href), jk });
+    const job_description = currentJobDescription();
+    log('captureJobPageMeta: cached', { jk, title, company, hasDescription: Boolean(job_description) });
+    cacheJobMeta({ company, title, job_url: canonicalJobUrl(jk, location.href), jk, job_description });
     void clearStaleApplyInProgress(jk);
   } else if (jk) {
     log('captureJobPageMeta: title/company selectors did not match', { jk, title, company });
@@ -157,11 +165,13 @@ function attachInPlatformApplyListener(): void {
         const title = textOf(firstMatch(selectors.jobTitleSelectors));
         const company = textOf(firstMatch(selectors.companySelectors));
         if (!title || !company) return;
+        const job_description = currentJobDescription();
         void setApplyInProgress({
           company,
           title,
           job_url: canonicalJobUrl(jk, location.href),
           jk,
+          job_description,
         });
         log('applyInProgress set', { jk, title, company });
       });
@@ -186,6 +196,7 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
   let title = textOf(firstMatch(selectors.jobTitleSelectors));
   let company = textOf(firstMatch(selectors.companySelectors));
   let jobUrl = canonicalJobUrl(jk, location.href);
+  let jobDescription = currentJobDescription();
   let resolvedJk = jk;
   if (!title || !company) {
     const last = await getLastViewedJob();
@@ -194,6 +205,7 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
       company = company || last.company;
       resolvedJk = resolvedJk ?? last.jk;
       jobUrl = last.job_url ?? jobUrl;
+      jobDescription = jobDescription || last.job_description;
     }
   }
   if (!title || !company) {
@@ -213,6 +225,7 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
     platform_job_id: resolvedJk,
     apply_method: 'external_redirect',
     status: 'pending_confirmation',
+    job_description: jobDescription,
   });
 }
 
@@ -293,6 +306,7 @@ function observeForConfirmation(): void {
         }
 
         const resolvedJk = jk ?? applyState.jk ?? cachedByJk?.jk;
+        const jobDescription = applyState.job_description ?? cachedByJk?.job_description;
 
         // No client-side dedupe cache: the backend upserts on
         // platform+platform_job_id, so a repeat report merges into the
@@ -306,6 +320,7 @@ function observeForConfirmation(): void {
           platform_job_id: resolvedJk,
           apply_method: 'in_platform',
           status: 'applied',
+          job_description: jobDescription,
         });
 
         // The application is recorded — this apply flow is done. Clear the frozen
@@ -343,6 +358,7 @@ function attachManualMarkListener(): void {
       platform_job_id: jk,
       apply_method: 'manual',
       status: 'applied',
+      job_description: currentJobDescription(),
     });
   });
 }

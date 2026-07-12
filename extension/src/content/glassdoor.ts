@@ -131,6 +131,13 @@ interface JobMeta {
   title: string;
   job_url: string;
   listingId?: string;
+  job_description?: string;
+}
+
+// Job description text, captured so the user doesn't have to paste it in
+// manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
+function currentJobDescription(): string | undefined {
+  return textOf(firstMatch(selectors.jobDescriptionSelectors)) || undefined;
 }
 
 const LAST_VIEWED_KEY = 'glassdoorLastViewedJob';
@@ -180,11 +187,17 @@ function captureJobPageMeta(): void {
   const { title, company } = resolveTitleAndCompany();
 
   if (title && company) {
-    log('captureJobPageMeta: cached', { listingId, title, company });
+    const job_description = currentJobDescription();
+    log('captureJobPageMeta: cached', {
+      listingId,
+      title,
+      company,
+      hasDescription: Boolean(job_description),
+    });
     // This cache is consumed only as a title/company/listingId fallback by the
     // external-redirect path; its job_url isn't used there (that path rebuilds
     // the URL from the resolved listing id), so exactJobUrl is fine here too.
-    cacheJobMeta({ company, title, job_url: exactJobUrl(listingId), listingId });
+    cacheJobMeta({ company, title, job_url: exactJobUrl(listingId), listingId, job_description });
   } else {
     log('captureJobPageMeta: title/company not resolved', { listingId, title, company });
   }
@@ -210,6 +223,7 @@ function classifyApplyClick(el: Element): 'easy_apply' | 'external' | undefined 
 
 async function reportExternalApply(listingId: string | undefined): Promise<void> {
   let { title, company } = resolveTitleAndCompany();
+  let jobDescription = currentJobDescription();
   let resolvedListingId = listingId;
   if (!title || !company) {
     const last = await getLastViewedJob();
@@ -217,6 +231,7 @@ async function reportExternalApply(listingId: string | undefined): Promise<void>
       title = title || last.title;
       company = company || last.company;
       resolvedListingId = resolvedListingId ?? last.listingId;
+      jobDescription = jobDescription || last.job_description;
     }
   }
   if (!title || !company) {
@@ -243,6 +258,7 @@ async function reportExternalApply(listingId: string | undefined): Promise<void>
     platform_job_id: resolvedListingId,
     apply_method: 'external_redirect',
     status: 'pending_confirmation',
+    job_description: jobDescription,
   });
 }
 
@@ -281,7 +297,13 @@ function attachApplyClickDelegation(): void {
           log('easy apply click but no title/company resolved — dropping');
           return;
         }
-        void setApplyInProgress({ company, title, job_url: exactJobUrl(listingId), listingId });
+        void setApplyInProgress({
+          company,
+          title,
+          job_url: exactJobUrl(listingId),
+          listingId,
+          job_description: currentJobDescription(),
+        });
         log('applyInProgress set', { listingId, title, company });
       } else {
         log('external apply click detected:', el.getAttribute('aria-label') || el.textContent);
@@ -366,6 +388,7 @@ function observeForConfirmation(): void {
           platform_job_id: listingId,
           apply_method: 'in_platform',
           status: 'applied',
+          job_description: applyState.job_description,
         });
 
         // The application is recorded — this apply flow is done. Clear the
@@ -420,6 +443,7 @@ function attachManualMarkListener(): void {
       platform_job_id: listingId,
       apply_method: 'manual',
       status: 'applied',
+      job_description: currentJobDescription(),
     });
   });
 }

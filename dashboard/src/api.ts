@@ -1,4 +1,13 @@
-import type { Application, ApplicationInput, Filters, Status, StatsResponse } from './types';
+import type {
+  Application,
+  ApplicationInput,
+  Filters,
+  Status,
+  StatsResponse,
+  PublicSettings,
+  SettingsInput,
+  ResumeVersion,
+} from './types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
 // to the backend (see vite.config.ts). Override with VITE_API_BASE if needed.
@@ -70,4 +79,18 @@ export const api = {
     request<{ deleted: number }>(`/applications?status=${encodeURIComponent(status)}`, {
       method: 'DELETE',
     }),
+
+  getSettings: (): Promise<PublicSettings> => request<PublicSettings>('/settings'),
+
+  saveSettings: (input: SettingsInput): Promise<PublicSettings> =>
+    request<PublicSettings>('/settings', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  tailor: (id: number): Promise<ResumeVersion> =>
+    request<ResumeVersion>(`/applications/${id}/tailor`, { method: 'POST' }),
+
+  listResumeVersions: (id: number): Promise<ResumeVersion[]> =>
+    request<ResumeVersion[]>(`/applications/${id}/resume-versions`),
 };

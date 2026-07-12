@@ -10,6 +10,10 @@ backend/data/*.db-journal
 backend/data/*.db-wal
 backend/data/*.db-shm
 
+# Local settings file — holds the user's own AI API key(s) and base resume.
+# Per CLAUDE.md §3, these live only on the user's machine and must never be committed.
+backend/data/settings.json
+
 # Build / cache
 *.log
 .DS_Store

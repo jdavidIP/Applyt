@@ -25,6 +25,7 @@ function initialState(editing: Application | null): ApplicationInput {
       apply_method: editing.apply_method,
       status: editing.status,
       notes: editing.notes ?? '',
+      job_description: editing.job_description ?? '',
     };
   }
   return {
@@ -36,6 +37,7 @@ function initialState(editing: Application | null): ApplicationInput {
     apply_method: 'manual',
     status: 'applied',
     notes: '',
+    job_description: '',
   };
 }
 
@@ -66,6 +68,7 @@ export function AddEditForm({ editing, onSubmit, onCancel }: Props) {
         job_url: form.job_url?.trim() || null,
         platform_job_id: form.platform_job_id?.trim() || null,
         notes: form.notes?.trim() || null,
+        job_description: form.job_description?.trim() || null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save.');
@@ -148,6 +151,15 @@ export function AddEditForm({ editing, onSubmit, onCancel }: Props) {
               value={form.notes ?? ''}
               onChange={(e) => set('notes', e.target.value)}
               rows={3}
+            />
+          </label>
+          <label className="span-2">
+            Job description
+            <textarea
+              value={form.job_description ?? ''}
+              onChange={(e) => set('job_description', e.target.value)}
+              rows={5}
+              placeholder="Paste the job posting text here — used as the input for AI resume tailoring."
             />
           </label>
         </div>

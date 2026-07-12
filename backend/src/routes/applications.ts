@@ -9,6 +9,7 @@ import type {
   BulkDeleteQuery,
   StatsResponse,
   WeeklyCount,
+  ResumeVersion,
 } from '../types.js';
 import {
   createApplicationSchema,
@@ -18,6 +19,8 @@ import {
   markStaleSchema,
   bulkDeleteQuerySchema,
 } from '../validation.js';
+import type { SettingsStore } from '../settings.js';
+import { tailorResume } from '../ai.js';
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
@@ -72,6 +75,7 @@ const CSV_COLUMNS: (keyof Application)[] = [
   'date_applied',
   'date_last_updated',
   'notes',
+  'job_description',
   'resume_version_id',
   'created_at',
   'updated_at',
@@ -114,7 +118,7 @@ export default async function applicationsRoutes(
   fastify: FastifyInstance,
   opts: RoutesOptions,
 ): Promise<void> {
-  const { db } = opts;
+  const { db, settings } = opts;
 
   // GET /applications — list with optional platform/status filter and sort.
   fastify.get<{ Querystring: ListApplicationsQuery }>(
@@ -274,10 +278,12 @@ export default async function applicationsRoutes(
         .prepare(
           `INSERT INTO applications
              (platform, company, title, job_url, platform_job_id, apply_method,
-              status, date_applied, date_last_updated, notes, created_at, updated_at)
+              status, date_applied, date_last_updated, notes, job_description,
+              created_at, updated_at)
            VALUES
              (@platform, @company, @title, @job_url, @platform_job_id, @apply_method,
-              @status, @date_applied, @date_last_updated, @notes, @created_at, @updated_at)`,
+              @status, @date_applied, @date_last_updated, @notes, @job_description,
+              @created_at, @updated_at)`,
         )
         .run({
           platform,
@@ -290,6 +296,7 @@ export default async function applicationsRoutes(
           date_applied,
           date_last_updated: now,
           notes: b.notes ?? null,
+          job_description: b.job_description ?? null,
           created_at: now,
           updated_at: now,
         });
@@ -326,6 +333,7 @@ export default async function applicationsRoutes(
         'status',
         'date_applied',
         'notes',
+        'job_description',
       ];
       for (const key of settable) {
         if (Object.prototype.hasOwnProperty.call(b, key)) {
@@ -351,6 +359,103 @@ export default async function applicationsRoutes(
       const info = db.prepare('DELETE FROM applications WHERE id = ?').run(request.params.id);
       if (info.changes === 0) return reply.code(404).send({ error: 'Application not found' });
       return reply.code(204).send();
+    },
+  );
+
+  // POST /applications/:id/tailor — AI resume tailoring (CLAUDE.md §7 Phase 4).
+  // Sends the base resume + this job's description to the user's chosen provider,
+  // stores the result in resume_versions, and links it to the application. This
+  // is the only route that makes an outbound network call (see ai.ts).
+  fastify.post<{ Params: { id: number } }>(
+    '/applications/:id/tailor',
+    { schema: { params: idParamSchema } },
+    async (request, reply) => {
+      const app = db.prepare('SELECT * FROM applications WHERE id = ?').get(request.params.id) as
+        | Application
+        | undefined;
+      if (!app) return reply.code(404).send({ error: 'Application not found' });
+
+      const jobDescription = (app.job_description ?? '').trim();
+      if (!jobDescription) {
+        return reply
+          .code(400)
+          .send({ error: 'This application has no job description to tailor against. Add one first.' });
+      }
+
+      const cfg = settings.read();
+      const baseResume = cfg.baseResume.trim();
+      if (!baseResume) {
+        return reply
+          .code(400)
+          .send({ error: 'No base resume is configured. Add one in Settings first.' });
+      }
+
+      const apiKey = settings.resolveApiKey(cfg.provider);
+      if (!apiKey) {
+        return reply.code(400).send({
+          error: `No API key configured for ${cfg.provider}. Add one in Settings first.`,
+        });
+      }
+
+      let output: string;
+      try {
+        const result = await tailorResume({
+          provider: cfg.provider,
+          apiKey,
+          model: cfg.model,
+          baseResume,
+          jobDescription,
+          company: app.company,
+          title: app.title,
+        });
+        output = result.output;
+      } catch (err) {
+        // Upstream provider failure (bad key, rate limit, bad model, network) —
+        // 502, surfacing the provider's own message for the dashboard to show.
+        request.log.error(err);
+        return reply
+          .code(502)
+          .send({ error: err instanceof Error ? err.message : 'AI provider request failed.' });
+      }
+
+      const now = new Date().toISOString();
+      const info = db
+        .prepare(
+          `INSERT INTO resume_versions
+             (application_id, base_resume_snapshot, tailored_output, ai_provider, created_at)
+           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider, @created_at)`,
+        )
+        .run({
+          application_id: app.id,
+          base_resume_snapshot: baseResume,
+          tailored_output: output,
+          ai_provider: cfg.provider,
+          created_at: now,
+        });
+
+      // Point the application at its newest tailored version.
+      db.prepare(
+        'UPDATE applications SET resume_version_id = @rvid, updated_at = @now WHERE id = @id',
+      ).run({ rvid: info.lastInsertRowid, now, id: app.id });
+
+      const created = db
+        .prepare('SELECT * FROM resume_versions WHERE id = ?')
+        .get(info.lastInsertRowid) as ResumeVersion;
+      return reply.code(201).send(created);
+    },
+  );
+
+  // GET /applications/:id/resume-versions — all tailored versions for a job,
+  // newest first.
+  fastify.get<{ Params: { id: number } }>(
+    '/applications/:id/resume-versions',
+    { schema: { params: idParamSchema } },
+    async (request) => {
+      return db
+        .prepare(
+          'SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC',
+        )
+        .all(request.params.id) as ResumeVersion[];
     },
   );
 }

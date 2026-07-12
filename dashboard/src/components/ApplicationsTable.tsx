@@ -7,6 +7,7 @@ interface Props {
   onStatusChange: (app: Application, next: Status) => void;
   onEdit: (app: Application) => void;
   onDelete: (app: Application) => void;
+  onTailor: (app: Application) => void;
   busyId: number | null;
 }
 
@@ -15,6 +16,7 @@ export function ApplicationsTable({
   onStatusChange,
   onEdit,
   onDelete,
+  onTailor,
   busyId,
 }: Props) {
   if (applications.length === 0) {
@@ -71,6 +73,18 @@ export function ApplicationsTable({
               <td>{formatDate(app.date_applied)}</td>
               <td>{formatDate(app.date_last_updated)}</td>
               <td className="row-actions">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => onTailor(app)}
+                  title="AI-tailor your resume for this job"
+                >
+                  Tailor
+                  {app.resume_version_id != null && (
+                    <span className="tailored-dot" title="A tailored resume exists" aria-hidden>
+                      ●
+                    </span>
+                  )}
+                </button>
                 <button className="btn btn-ghost btn-sm" onClick={() => onEdit(app)}>
                   Edit
                 </button>

@@ -13,6 +13,11 @@
     ".jobsearch-CompanyInfoContainer"
   ],
 
+  "jobDescriptionSelectors": [
+    "#jobDescriptionText",
+    "[data-testid='jobsearch-JobComponent-description']"
+  ],
+
   "inPlatformApplyButtonSelectors": [
     "#indeedApplyButton",
     "[data-testid='indeedApplyButton']",

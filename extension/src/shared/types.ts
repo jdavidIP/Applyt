@@ -12,6 +12,9 @@ export interface DetectedApplication {
   platform_job_id?: string;
   apply_method: ApplyMethod;
   status?: 'applied' | 'pending_confirmation';
+  // Captured from the job posting page so the user doesn't have to paste it in
+  // manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
+  job_description?: string;
 }
 
 export interface RuntimeMessage {

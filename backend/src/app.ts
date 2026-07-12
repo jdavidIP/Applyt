@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import type Database from 'better-sqlite3';
 import applicationsRoutes from './routes/applications.js';
+import settingsRoutes from './routes/settings.js';
+import { createSettingsStore, type SettingsStore } from './settings.js';
 
 // Dashboard dev origin(s). Overridable via CORS_ORIGIN (comma-separated).
 // Since this is a local single-user tool, we scope CORS to the dashboard's localhost origin
@@ -17,7 +19,10 @@ function corsOrigins(): string[] {
   ];
 }
 
-export async function buildApp(db: Database.Database): Promise<FastifyInstance> {
+export async function buildApp(
+  db: Database.Database,
+  settings: SettingsStore = createSettingsStore(),
+): Promise<FastifyInstance> {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
 
   await app.register(cors, {
@@ -49,7 +54,8 @@ export async function buildApp(db: Database.Database): Promise<FastifyInstance> 
 
   app.get('/health', async () => ({ status: 'ok' }));
 
-  await app.register(applicationsRoutes, { db });
+  await app.register(applicationsRoutes, { db, settings });
+  await app.register(settingsRoutes, { settings });
 
   return app;
 }

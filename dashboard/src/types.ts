@@ -29,6 +29,7 @@ export interface Application {
   date_applied: string;
   date_last_updated: string;
   notes: string | null;
+  job_description: string | null;
   resume_version_id: number | null;
   created_at: string;
   updated_at: string;
@@ -44,6 +45,7 @@ export interface ApplicationInput {
   status: Status;
   date_applied?: string;
   notes?: string | null;
+  job_description?: string | null;
 }
 
 export interface Filters {
@@ -62,4 +64,37 @@ export interface StatsResponse {
   totalApplications: number;
   perWeek: WeeklyCount[];
   responseRate: number | null;
+}
+
+// ---- Phase 4: AI resume tailoring ----
+
+export const AI_PROVIDERS = ['anthropic', 'openai'] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+// Client-safe settings view from GET /settings — never includes raw API keys.
+export interface PublicSettings {
+  provider: AiProvider;
+  model: string;
+  baseResume: string;
+  hasAnthropicKey: boolean;
+  hasOpenaiKey: boolean;
+}
+
+// Partial update sent to PUT /settings. API keys are write-only: omit to leave
+// unchanged, send '' to clear.
+export interface SettingsInput {
+  provider?: AiProvider;
+  model?: string;
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
+  baseResume?: string;
+}
+
+export interface ResumeVersion {
+  id: number;
+  application_id: number | null;
+  base_resume_snapshot: string | null;
+  tailored_output: string | null;
+  ai_provider: string | null;
+  created_at: string;
 }

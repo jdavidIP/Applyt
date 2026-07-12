@@ -23,5 +23,22 @@ export function createDb(dbPath: string = resolveDbPath()): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+  migrate(db);
   return db;
+}
+
+// Additive, idempotent migrations for databases created before a column existed.
+// SCHEMA_SQL uses CREATE TABLE IF NOT EXISTS, so a pre-existing table is never
+// recreated — new columns must be added with ALTER TABLE here. Each step checks
+// the live column set first so re-running is a harmless no-op.
+function migrate(db: Database.Database): void {
+  const hasColumn = (table: string, column: string): boolean =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+      (c) => c.name === column,
+    );
+
+  // Phase 4: job_description holds the JD text used as the AI tailoring input.
+  if (!hasColumn('applications', 'job_description')) {
+    db.exec('ALTER TABLE applications ADD COLUMN job_description TEXT');
+  }
 }
