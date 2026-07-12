@@ -1,4 +1,4 @@
-import type { Application, ApplicationInput, Filters } from './types';
+import type { Application, ApplicationInput, Filters, Status, StatsResponse } from './types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
 // to the backend (see vite.config.ts). Override with VITE_API_BASE if needed.
@@ -57,4 +57,17 @@ export const api = {
     request<void>(`/applications/${id}`, { method: 'DELETE' }),
 
   exportCsvUrl: (): string => `${API_BASE}/applications/export.csv`,
+
+  stats: (): Promise<StatsResponse> => request<StatsResponse>('/applications/stats'),
+
+  markStale: (thresholdDays: number): Promise<{ updated: number }> =>
+    request<{ updated: number }>('/applications/mark-stale', {
+      method: 'POST',
+      body: JSON.stringify({ thresholdDays }),
+    }),
+
+  bulkDeleteByStatus: (status: Status): Promise<{ deleted: number }> =>
+    request<{ deleted: number }>(`/applications?status=${encodeURIComponent(status)}`, {
+      method: 'DELETE',
+    }),
 };

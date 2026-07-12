@@ -52,3 +52,14 @@ export interface Filters {
   sort: 'date_applied' | 'date_last_updated';
   order: 'asc' | 'desc';
 }
+
+export interface WeeklyCount {
+  weekStart: string;
+  count: number;
+}
+
+export interface StatsResponse {
+  totalApplications: number;
+  perWeek: WeeklyCount[];
+  responseRate: number | null;
+}

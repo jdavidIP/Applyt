@@ -5,6 +5,7 @@ import { ApplicationsTable } from './components/ApplicationsTable';
 import { AddEditForm } from './components/AddEditForm';
 import { FilterBar } from './components/FilterBar';
 import { ExportButton } from './components/ExportButton';
+import { LifecyclePanel } from './components/LifecyclePanel';
 
 const DEFAULT_FILTERS: Filters = {
   platform: '',
@@ -94,6 +95,8 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      <LifecyclePanel onApplicationsChanged={() => void load()} />
 
       <FilterBar filters={filters} onChange={setFilters} />
 

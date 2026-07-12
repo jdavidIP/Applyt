@@ -69,3 +69,22 @@ export interface ListApplicationsQuery {
   sort?: 'date_applied' | 'date_last_updated';
   order?: 'asc' | 'desc';
 }
+
+export interface MarkStaleBody {
+  thresholdDays: number;
+}
+
+export interface BulkDeleteQuery {
+  status: Status;
+}
+
+export interface WeeklyCount {
+  weekStart: string; // ISO date (Monday) the week bucket starts on
+  count: number;
+}
+
+export interface StatsResponse {
+  totalApplications: number;
+  perWeek: WeeklyCount[];
+  responseRate: number | null; // null when there's no denominator (no non-pending applications yet)
+}

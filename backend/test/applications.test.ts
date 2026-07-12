@@ -265,3 +265,126 @@ test('export.csv is not shadowed by the :id route', async () => {
   const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
   assert.equal(res.statusCode, 200);
 });
+
+function backdateLastUpdated(id: number, daysAgo: number): void {
+  const iso = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE applications SET date_last_updated = ? WHERE id = ?').run(iso, id);
+}
+
+test('POST /applications/mark-stale transitions old applied rows to stale', async () => {
+  const old = await createSample({ platform_job_id: 'stale1', status: 'applied' });
+  backdateLastUpdated(old.id, 35);
+  const recent = await createSample({ platform_job_id: 'stale2', status: 'applied' });
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications/mark-stale',
+    payload: { thresholdDays: 30 },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal((res.json() as { updated: number }).updated, 1);
+
+  const oldRow = (await app.inject({ method: 'GET', url: `/applications/${old.id}` })).json() as Application;
+  assert.equal(oldRow.status, 'stale');
+  const recentRow = (await app.inject({ method: 'GET', url: `/applications/${recent.id}` })).json() as Application;
+  assert.equal(recentRow.status, 'applied'); // untouched, within threshold
+});
+
+test('POST /applications/mark-stale never touches a non-applied lifecycle status', async () => {
+  const interviewing = await createSample({ platform_job_id: 'stale3', status: 'applied' });
+  await app.inject({
+    method: 'PATCH',
+    url: `/applications/${interviewing.id}`,
+    payload: { status: 'interviewing' },
+  });
+  backdateLastUpdated(interviewing.id, 90);
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications/mark-stale',
+    payload: { thresholdDays: 30 },
+  });
+  assert.equal((res.json() as { updated: number }).updated, 0);
+
+  const row = (await app.inject({ method: 'GET', url: `/applications/${interviewing.id}` })).json() as Application;
+  assert.equal(row.status, 'interviewing'); // preserved, not clobbered by mark-stale
+});
+
+test('POST /applications/mark-stale rejects a missing thresholdDays', async () => {
+  const res = await app.inject({ method: 'POST', url: '/applications/mark-stale', payload: {} });
+  assert.equal(res.statusCode, 400);
+});
+
+test('DELETE /applications?status=X bulk-deletes only matching rows', async () => {
+  await createSample({ platform_job_id: 'bulk1', status: 'rejected' });
+  await createSample({ platform_job_id: 'bulk2', status: 'rejected' });
+  await createSample({ platform_job_id: 'bulk3', status: 'applied' });
+
+  const res = await app.inject({ method: 'DELETE', url: '/applications?status=rejected' });
+  assert.equal(res.statusCode, 200);
+  assert.equal((res.json() as { deleted: number }).deleted, 2);
+
+  const remaining = (await app.inject({ method: 'GET', url: '/applications' })).json() as Application[];
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].status, 'applied');
+});
+
+test('DELETE /applications rejects an invalid status enum value', async () => {
+  const res = await app.inject({ method: 'DELETE', url: '/applications?status=bogus' });
+  assert.equal(res.statusCode, 400);
+});
+
+test('DELETE /applications requires a status query param', async () => {
+  const res = await app.inject({ method: 'DELETE', url: '/applications' });
+  assert.equal(res.statusCode, 400);
+});
+
+test('GET /applications/stats computes response rate excluding pending_confirmation', async () => {
+  await createSample({ platform_job_id: 'stats1', status: 'pending_confirmation' }); // excluded
+  await createSample({ platform_job_id: 'stats2', status: 'applied' }); // no response yet
+  await createSample({ platform_job_id: 'stats3', status: 'interviewing' }); // responded
+  await createSample({ platform_job_id: 'stats4', status: 'rejected' }); // responded
+
+  const res = await app.inject({ method: 'GET', url: '/applications/stats' });
+  assert.equal(res.statusCode, 200);
+  const stats = res.json() as { totalApplications: number; responseRate: number | null };
+  assert.equal(stats.totalApplications, 4);
+  // 2 responded out of 3 eligible (pending_confirmation excluded from denominator)
+  assert.equal(stats.responseRate, 2 / 3);
+});
+
+test('GET /applications/stats returns a null response rate with no eligible rows', async () => {
+  await createSample({ platform_job_id: 'stats5', status: 'pending_confirmation' });
+  const res = await app.inject({ method: 'GET', url: '/applications/stats' });
+  assert.equal((res.json() as { responseRate: number | null }).responseRate, null);
+});
+
+test('GET /applications/stats buckets applications into the correct week', async () => {
+  const thisWeek = new Date().toISOString();
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: {
+      company: 'Acme Corp',
+      title: 'Software Engineer',
+      platform: 'indeed',
+      platform_job_id: 'weekly1',
+      apply_method: 'in_platform',
+      date_applied: thisWeek,
+    },
+  });
+  assert.equal(res.statusCode, 201);
+
+  const stats = (await app.inject({ method: 'GET', url: '/applications/stats' })).json() as {
+    perWeek: { weekStart: string; count: number }[];
+  };
+  assert.equal(stats.perWeek.length, 8);
+  const total = stats.perWeek.reduce((sum, w) => sum + w.count, 0);
+  assert.equal(total, 1);
+  assert.equal(stats.perWeek[stats.perWeek.length - 1].count, 1); // lands in the current (last) week bucket
+});
+
+test('stats is not shadowed by the :id route', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/stats' });
+  assert.equal(res.statusCode, 200);
+});

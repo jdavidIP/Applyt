@@ -5,13 +5,55 @@ import type {
   CreateApplicationBody,
   UpdateApplicationBody,
   ListApplicationsQuery,
+  MarkStaleBody,
+  BulkDeleteQuery,
+  StatsResponse,
+  WeeklyCount,
 } from '../types.js';
 import {
   createApplicationSchema,
   updateApplicationSchema,
   listApplicationsQuerySchema,
   idParamSchema,
+  markStaleSchema,
+  bulkDeleteQuerySchema,
 } from '../validation.js';
+
+// Confirmed-applied statuses that got some kind of outcome, for response-rate
+// purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
+// excluded from the denominator entirely — we don't yet know the application
+// was actually completed, so it shouldn't count against the rate either way.
+const RESPONSE_STATUSES = new Set(['interviewing', 'rejected', 'offer']);
+
+// Monday 00:00:00 UTC of the ISO week containing `d`, used to bucket
+// applications into "applications per week" (CLAUDE.md §7 Phase 3).
+function mondayOf(d: Date): Date {
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = date.getUTCDay(); // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1) - day;
+  date.setUTCDate(date.getUTCDate() + diff);
+  return date;
+}
+
+const WEEKS_IN_STATS = 8;
+
+function computePerWeek(dateApplied: string[]): WeeklyCount[] {
+  const now = new Date();
+  const currentWeekStart = mondayOf(now);
+  const buckets: WeeklyCount[] = [];
+  for (let i = WEEKS_IN_STATS - 1; i >= 0; i--) {
+    const weekStart = new Date(currentWeekStart);
+    weekStart.setUTCDate(weekStart.getUTCDate() - i * 7);
+    buckets.push({ weekStart: weekStart.toISOString().slice(0, 10), count: 0 });
+  }
+  const indexByWeekStart = new Map(buckets.map((b, i) => [b.weekStart, i]));
+  for (const iso of dateApplied) {
+    const weekStart = mondayOf(new Date(iso)).toISOString().slice(0, 10);
+    const idx = indexByWeekStart.get(weekStart);
+    if (idx !== undefined) buckets[idx].count += 1;
+  }
+  return buckets;
+}
 
 interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
@@ -111,6 +153,64 @@ export default async function applicationsRoutes(
       .header('Content-Disposition', 'attachment; filename="applications.csv"')
       .send(toCsv(rows));
   });
+
+  // GET /applications/stats — applications-per-week (last 8 weeks) + response rate.
+  // Declared before ':id' so 'stats' is never parsed as an id.
+  fastify.get('/applications/stats', async () => {
+    const rows = db
+      .prepare('SELECT status, date_applied FROM applications')
+      .all() as Pick<Application, 'status' | 'date_applied'>[];
+
+    const total = rows.length;
+    const responseEligible = rows.filter((r) => r.status !== 'pending_confirmation');
+    const responded = responseEligible.filter((r) => RESPONSE_STATUSES.has(r.status));
+    const responseRate =
+      responseEligible.length === 0 ? null : responded.length / responseEligible.length;
+
+    const stats: StatsResponse = {
+      totalApplications: total,
+      perWeek: computePerWeek(rows.map((r) => r.date_applied)),
+      responseRate,
+    };
+    return stats;
+  });
+
+  // POST /applications/mark-stale — bulk-transition long-untouched 'applied'
+  // rows to 'stale' (CLAUDE.md §7 Phase 3: user-configurable threshold).
+  // Only 'applied' rows are eligible: any other status is either already a
+  // deliberate lifecycle state or not yet confirmed, so leave it alone.
+  fastify.post<{ Body: MarkStaleBody }>(
+    '/applications/mark-stale',
+    { schema: { body: markStaleSchema } },
+    async (request) => {
+      const { thresholdDays } = request.body;
+      const cutoff = new Date(Date.now() - thresholdDays * 24 * 60 * 60 * 1000).toISOString();
+      const now = new Date().toISOString();
+      const info = db
+        .prepare(
+          `UPDATE applications
+              SET status = 'stale', date_last_updated = @now, updated_at = @now
+            WHERE status = 'applied' AND date_last_updated < @cutoff`,
+        )
+        .run({ now, cutoff });
+      return { updated: info.changes };
+    },
+  );
+
+  // DELETE /applications?status=rejected — bulk-delete every row with the
+  // given status (CLAUDE.md §7 Phase 3: "bulk delete rejected"). Generalized
+  // to any status rather than hardcoding 'rejected', since the same query
+  // shape is useful for clearing out 'stale'/'ghosted' rows too.
+  fastify.delete<{ Querystring: BulkDeleteQuery }>(
+    '/applications',
+    { schema: { querystring: bulkDeleteQuerySchema } },
+    async (request) => {
+      const info = db
+        .prepare('DELETE FROM applications WHERE status = ?')
+        .run(request.query.status);
+      return { deleted: info.changes };
+    },
+  );
 
   // GET /applications/:id — single row.
   fastify.get<{ Params: { id: number } }>(

@@ -58,3 +58,21 @@ export const idParamSchema = {
     id: { type: 'integer', minimum: 1 },
   },
 } as const;
+
+export const markStaleSchema = {
+  type: 'object',
+  required: ['thresholdDays'],
+  additionalProperties: false,
+  properties: {
+    thresholdDays: { type: 'integer', minimum: 1 },
+  },
+} as const;
+
+export const bulkDeleteQuerySchema = {
+  type: 'object',
+  required: ['status'],
+  additionalProperties: false,
+  properties: {
+    status: { type: 'string', enum: [...STATUSES] },
+  },
+} as const;

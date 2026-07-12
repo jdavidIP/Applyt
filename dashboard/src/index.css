@@ -106,6 +106,80 @@ body {
   background: #fee2e2;
 }
 
+/* Lifecycle panel (Phase 3: bulk actions + basic stats) */
+.lifecycle-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.lifecycle-actions label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.lifecycle-actions input[type='number'] {
+  width: 90px;
+}
+.stats {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+.stat-chart .week-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 48px;
+}
+.week-bar-wrap {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 2px;
+  width: 18px;
+  height: 100%;
+}
+.week-bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--primary);
+  border-radius: 2px 2px 0 0;
+}
+.week-count {
+  font-size: 10px;
+  color: var(--muted);
+}
+
 /* Filter bar */
 .filter-bar {
   display: flex;
