@@ -52,6 +52,20 @@ export const updateSettingsSchema = {
     anthropicApiKey: { type: 'string' },
     openaiApiKey: { type: 'string' },
     baseResume: { type: 'string' },
+    // Per-model pricing table: an object keyed by model id, each value a
+    // { inputPerMillion, outputPerMillion } pair (USD per million tokens).
+    modelPricing: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        required: ['inputPerMillion', 'outputPerMillion'],
+        additionalProperties: false,
+        properties: {
+          inputPerMillion: { type: 'number', minimum: 0 },
+          outputPerMillion: { type: 'number', minimum: 0 },
+        },
+      },
+    },
   },
 } as const;
 

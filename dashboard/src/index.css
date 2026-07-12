@@ -382,6 +382,42 @@ textarea:focus {
   margin-left: 5px;
   vertical-align: middle;
 }
+.tailor-usage {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Model pricing editor (Phase 4 cost tracking) */
+.pricing-section {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.pricing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pricing-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pricing-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 100px 32px;
+  gap: 8px;
+  align-items: center;
+}
+.pricing-row-head {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.pricing-row-head span {
+  padding: 0 2px;
+}
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -1,4 +1,4 @@
-import type { AiProvider } from './types.js';
+import type { AiProvider, TokenUsage } from './types.js';
 
 // AI resume tailoring (CLAUDE.md §7 Phase 4). This is the ONLY place the whole
 // project makes an outbound network call: the backend proxies a single request
@@ -20,6 +20,7 @@ export interface TailorParams {
 export interface TailorResult {
   output: string;
   provider: AiProvider;
+  usage: TokenUsage;
 }
 
 const MAX_TOKENS = 4096;
@@ -60,7 +61,7 @@ function userPrompt(p: TailorParams): string {
   ].join('\n');
 }
 
-async function callAnthropic(p: TailorParams): Promise<string> {
+async function callAnthropic(p: TailorParams): Promise<{ text: string; usage: TokenUsage }> {
   const res = await fetch(anthropicUrl(), {
     method: 'POST',
     headers: {
@@ -76,17 +77,26 @@ async function callAnthropic(p: TailorParams): Promise<string> {
     }),
   });
   if (!res.ok) throw await providerError('Anthropic', res);
-  const data = (await res.json()) as { content?: { type: string; text?: string }[] };
+  const data = (await res.json()) as {
+    content?: { type: string; text?: string }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
   const text = (data.content ?? [])
     .filter((block) => block.type === 'text')
     .map((block) => block.text ?? '')
     .join('')
     .trim();
   if (!text) throw new Error('Anthropic returned an empty response.');
-  return text;
+  return {
+    text,
+    usage: {
+      inputTokens: data.usage?.input_tokens ?? 0,
+      outputTokens: data.usage?.output_tokens ?? 0,
+    },
+  };
 }
 
-async function callOpenai(p: TailorParams): Promise<string> {
+async function callOpenai(p: TailorParams): Promise<{ text: string; usage: TokenUsage }> {
   const res = await fetch(openaiUrl(), {
     method: 'POST',
     headers: {
@@ -103,10 +113,19 @@ async function callOpenai(p: TailorParams): Promise<string> {
     }),
   });
   if (!res.ok) throw await providerError('OpenAI', res);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
   const text = data.choices?.[0]?.message?.content?.trim() ?? '';
   if (!text) throw new Error('OpenAI returned an empty response.');
-  return text;
+  return {
+    text,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+    },
+  };
 }
 
 // Normalize a failed provider response into a single Error carrying the
@@ -125,7 +144,7 @@ async function providerError(name: string, res: Response): Promise<Error> {
 }
 
 export async function tailorResume(params: TailorParams): Promise<TailorResult> {
-  const output =
+  const { text, usage } =
     params.provider === 'openai' ? await callOpenai(params) : await callAnthropic(params);
-  return { output, provider: params.provider };
+  return { output: text, provider: params.provider, usage };
 }

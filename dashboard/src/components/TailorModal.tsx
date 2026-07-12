@@ -11,6 +11,24 @@ interface Props {
   onTailored: () => void;
 }
 
+// Formats the stored per-run cost. Shows more precision for sub-cent amounts so
+// a $0.004 tailor doesn't round to "$0.00". null means the model had no pricing
+// configured — we say "unknown", never a fabricated number.
+function formatCost(cost: number | null): string {
+  if (cost === null || cost === undefined) return 'cost unknown';
+  if (cost === 0) return '$0.00';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+function usageSummary(v: ResumeVersion): string {
+  const tokens =
+    v.input_tokens != null && v.output_tokens != null
+      ? `${v.input_tokens.toLocaleString()} in / ${v.output_tokens.toLocaleString()} out tokens`
+      : null;
+  return [v.model, tokens, formatCost(v.cost)].filter(Boolean).join(' · ');
+}
+
 // Phase 4 (CLAUDE.md §7): "Tailor for this job" — sends the base resume + this
 // application's job description to the configured AI provider and stores the
 // result. Prior tailored versions for the job are listed and viewable.
@@ -104,6 +122,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
+            <p className="tailor-usage">{usageSummary(selected)}</p>
             <textarea readOnly value={selected.tailored_output ?? ''} rows={16} />
           </div>
         )}

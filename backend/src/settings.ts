@@ -1,7 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AiProvider, PublicSettings, Settings, UpdateSettingsBody } from './types.js';
+import type {
+  AiProvider,
+  ModelPricing,
+  PublicSettings,
+  Settings,
+  UpdateSettingsBody,
+} from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -15,12 +21,27 @@ function resolveSettingsPath(): string {
   return resolve(__dirname, '..', 'data', 'settings.json');
 }
 
+// Seed pricing (USD per MILLION tokens, input/output) for common models, so the
+// dashboard can show a cost the moment a user tailors — WITHOUT them having to
+// look prices up first. These are approximate published list prices and WILL go
+// stale: the table is fully user-editable in Settings, and a model absent from
+// it simply shows no cost (never a wrong one). Keyed by the exact model id the
+// user would enter.
+const DEFAULT_MODEL_PRICING: ModelPricing = {
+  'claude-sonnet-5': { inputPerMillion: 3, outputPerMillion: 15 },
+  'claude-opus-4-8': { inputPerMillion: 15, outputPerMillion: 75 },
+  'claude-haiku-4-5': { inputPerMillion: 0.8, outputPerMillion: 4 },
+  'gpt-4o': { inputPerMillion: 2.5, outputPerMillion: 10 },
+  'gpt-4o-mini': { inputPerMillion: 0.15, outputPerMillion: 0.6 },
+};
+
 const DEFAULTS: Settings = {
   provider: 'anthropic',
   model: 'claude-sonnet-5',
   anthropicApiKey: '',
   openaiApiKey: '',
   baseResume: '',
+  modelPricing: DEFAULT_MODEL_PRICING,
 };
 
 export interface SettingsStore {
@@ -60,6 +81,9 @@ export function createSettingsStore(path: string = resolveSettingsPath()): Setti
       anthropicApiKey: patch.anthropicApiKey ?? current.anthropicApiKey,
       openaiApiKey: patch.openaiApiKey ?? current.openaiApiKey,
       baseResume: patch.baseResume ?? current.baseResume,
+      // A sent modelPricing replaces the whole table (the Settings UI always
+      // submits the full set); absent leaves the existing table untouched.
+      modelPricing: patch.modelPricing ?? current.modelPricing,
     };
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(next, null, 2), 'utf8');
@@ -84,6 +108,7 @@ export function createSettingsStore(path: string = resolveSettingsPath()): Setti
       baseResume: s.baseResume,
       hasAnthropicKey: Boolean(resolveApiKey('anthropic')),
       hasOpenaiKey: Boolean(resolveApiKey('openai')),
+      modelPricing: s.modelPricing,
     };
   }
 

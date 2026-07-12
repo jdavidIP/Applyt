@@ -168,7 +168,11 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   });
   const created = await createApp({ job_description: 'Senior React role.' });
 
-  stubFetch(200, { content: [{ type: 'text', text: 'TAILORED RESUME OUTPUT' }] });
+  // Default model claude-sonnet-5 is priced at 3/15 per million (input/output).
+  stubFetch(200, {
+    content: [{ type: 'text', text: 'TAILORED RESUME OUTPUT' }],
+    usage: { input_tokens: 1000, output_tokens: 500 },
+  });
   const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
   assert.equal(res.statusCode, 201);
   const version = res.json() as ResumeVersion;
@@ -176,6 +180,11 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(version.tailored_output, 'TAILORED RESUME OUTPUT');
   assert.equal(version.base_resume_snapshot, 'BASE RESUME');
   assert.equal(version.ai_provider, 'anthropic');
+  assert.equal(version.model, 'claude-sonnet-5');
+  assert.equal(version.input_tokens, 1000);
+  assert.equal(version.output_tokens, 500);
+  // (1000/1e6)*3 + (500/1e6)*15 = 0.003 + 0.0075 = 0.0105
+  assert.ok(Math.abs((version.cost ?? 0) - 0.0105) < 1e-9);
 
   // The application now points at its newest tailored version.
   const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
@@ -187,7 +196,7 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(list[0].id, version.id);
 });
 
-test('POST /:id/tailor uses the OpenAI response shape when provider is openai', async () => {
+test('POST /:id/tailor uses the OpenAI response shape and its usage fields', async () => {
   await app.inject({
     method: 'PUT',
     url: '/settings',
@@ -195,10 +204,69 @@ test('POST /:id/tailor uses the OpenAI response shape when provider is openai', 
   });
   const created = await createApp({ job_description: 'Backend role.' });
 
-  stubFetch(200, { choices: [{ message: { content: 'OPENAI TAILORED OUTPUT' } }] });
+  // gpt-4o is priced at 2.5/10 per million.
+  stubFetch(200, {
+    choices: [{ message: { content: 'OPENAI TAILORED OUTPUT' } }],
+    usage: { prompt_tokens: 2000, completion_tokens: 1000 },
+  });
   const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
   assert.equal(res.statusCode, 201);
-  assert.equal((res.json() as ResumeVersion).tailored_output, 'OPENAI TAILORED OUTPUT');
+  const version = res.json() as ResumeVersion;
+  assert.equal(version.tailored_output, 'OPENAI TAILORED OUTPUT');
+  assert.equal(version.input_tokens, 2000);
+  assert.equal(version.output_tokens, 1000);
+  // (2000/1e6)*2.5 + (1000/1e6)*10 = 0.005 + 0.01 = 0.015
+  assert.ok(Math.abs((version.cost ?? 0) - 0.015) < 1e-9);
+});
+
+test('POST /:id/tailor records tokens but a null cost for an unpriced model', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: {
+      provider: 'anthropic',
+      model: 'some-unlisted-model',
+      anthropicApiKey: 'sk-ant',
+      baseResume: 'BASE',
+    },
+  });
+  const created = await createApp({ job_description: 'Role.' });
+
+  stubFetch(200, {
+    content: [{ type: 'text', text: 'OUT' }],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 201);
+  const version = res.json() as ResumeVersion;
+  assert.equal(version.input_tokens, 100);
+  assert.equal(version.output_tokens, 50);
+  assert.equal(version.cost, null); // no pricing for this model → unknown, not fabricated
+});
+
+test('GET /settings exposes a default model pricing table', async () => {
+  const s = (await app.inject({ method: 'GET', url: '/settings' })).json() as PublicSettings;
+  assert.ok(s.modelPricing);
+  assert.deepEqual(s.modelPricing['claude-sonnet-5'], { inputPerMillion: 3, outputPerMillion: 15 });
+});
+
+test('PUT /settings replaces the model pricing table and round-trips it', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { modelPricing: { 'my-model': { inputPerMillion: 1, outputPerMillion: 2 } } },
+  });
+  const s = (await app.inject({ method: 'GET', url: '/settings' })).json() as PublicSettings;
+  assert.deepEqual(s.modelPricing['my-model'], { inputPerMillion: 1, outputPerMillion: 2 });
+});
+
+test('PUT /settings rejects a malformed pricing entry', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { modelPricing: { bad: { inputPerMillion: -1, outputPerMillion: 2 } } },
+  });
+  assert.equal(res.statusCode, 400); // negative price violates minimum: 0
 });
 
 test('POST /:id/tailor 502s and surfaces the provider error on an upstream failure', async () => {

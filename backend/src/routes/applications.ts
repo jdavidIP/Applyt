@@ -398,6 +398,7 @@ export default async function applicationsRoutes(
       }
 
       let output: string;
+      let usage: { inputTokens: number; outputTokens: number };
       try {
         const result = await tailorResume({
           provider: cfg.provider,
@@ -409,6 +410,7 @@ export default async function applicationsRoutes(
           title: app.title,
         });
         output = result.output;
+        usage = result.usage;
       } catch (err) {
         // Upstream provider failure (bad key, rate limit, bad model, network) —
         // 502, surfacing the provider's own message for the dashboard to show.
@@ -418,18 +420,32 @@ export default async function applicationsRoutes(
           .send({ error: err instanceof Error ? err.message : 'AI provider request failed.' });
       }
 
+      // Actual cost = tokens × the configured price for this model. NULL when the
+      // model has no pricing entry — we show "unknown", never a fabricated number.
+      const price = cfg.modelPricing[cfg.model];
+      const cost = price
+        ? (usage.inputTokens / 1_000_000) * price.inputPerMillion +
+          (usage.outputTokens / 1_000_000) * price.outputPerMillion
+        : null;
+
       const now = new Date().toISOString();
       const info = db
         .prepare(
           `INSERT INTO resume_versions
-             (application_id, base_resume_snapshot, tailored_output, ai_provider, created_at)
-           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider, @created_at)`,
+             (application_id, base_resume_snapshot, tailored_output, ai_provider,
+              model, input_tokens, output_tokens, cost, created_at)
+           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider,
+              @model, @input_tokens, @output_tokens, @cost, @created_at)`,
         )
         .run({
           application_id: app.id,
           base_resume_snapshot: baseResume,
           tailored_output: output,
           ai_provider: cfg.provider,
+          model: cfg.model,
+          input_tokens: usage.inputTokens,
+          output_tokens: usage.outputTokens,
+          cost,
           created_at: now,
         });
 

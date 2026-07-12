@@ -41,4 +41,18 @@ function migrate(db: Database.Database): void {
   if (!hasColumn('applications', 'job_description')) {
     db.exec('ALTER TABLE applications ADD COLUMN job_description TEXT');
   }
+
+  // Phase 4 cost tracking: record what each tailor run consumed and cost.
+  if (!hasColumn('resume_versions', 'model')) {
+    db.exec('ALTER TABLE resume_versions ADD COLUMN model TEXT');
+  }
+  if (!hasColumn('resume_versions', 'input_tokens')) {
+    db.exec('ALTER TABLE resume_versions ADD COLUMN input_tokens INTEGER');
+  }
+  if (!hasColumn('resume_versions', 'output_tokens')) {
+    db.exec('ALTER TABLE resume_versions ADD COLUMN output_tokens INTEGER');
+  }
+  if (!hasColumn('resume_versions', 'cost')) {
+    db.exec('ALTER TABLE resume_versions ADD COLUMN cost REAL');
+  }
 }

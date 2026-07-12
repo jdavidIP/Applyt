@@ -97,6 +97,24 @@ export interface StatsResponse {
 export const AI_PROVIDERS = ['anthropic', 'openai'] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
+// Per-model pricing, quoted the way providers publish it: dollars per MILLION
+// tokens, separately for input (prompt) and output (completion). User-editable
+// in Settings — provider prices change, so a stale hardcoded table would be
+// worse than one the user controls.
+export interface ModelPrice {
+  inputPerMillion: number;
+  outputPerMillion: number;
+}
+
+// Keyed by the exact model id the user configures (e.g. 'claude-sonnet-5').
+export type ModelPricing = Record<string, ModelPrice>;
+
+// Token counts a provider reports for one request, normalized across providers.
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 // The full settings record as persisted to backend/data/settings.json. Holds
 // the user's own secrets and never leaves the machine except as an outbound
 // call to the chosen AI provider (CLAUDE.md §3/§4).
@@ -106,17 +124,19 @@ export interface Settings {
   anthropicApiKey: string;
   openaiApiKey: string;
   baseResume: string;
+  modelPricing: ModelPricing;
 }
 
 // What a client may send to update settings — every field optional (partial
 // update). API keys are write-only: absent means "leave unchanged", empty
-// string means "clear it".
+// string means "clear it". modelPricing, when sent, replaces the whole table.
 export interface UpdateSettingsBody {
   provider?: AiProvider;
   model?: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
   baseResume?: string;
+  modelPricing?: ModelPricing;
 }
 
 // What GET /settings returns — secrets are never sent back to the client, only
@@ -127,6 +147,7 @@ export interface PublicSettings {
   baseResume: string;
   hasAnthropicKey: boolean;
   hasOpenaiKey: boolean;
+  modelPricing: ModelPricing;
 }
 
 export interface ResumeVersion {
@@ -135,5 +156,9 @@ export interface ResumeVersion {
   base_resume_snapshot: string | null;
   tailored_output: string | null;
   ai_provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost: number | null;
   created_at: string;
 }

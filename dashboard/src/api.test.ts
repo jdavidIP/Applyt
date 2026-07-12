@@ -148,6 +148,21 @@ describe('api Phase 4 tailoring functions', () => {
     expect(headers.get('Content-Type')).toBe('application/json');
   });
 
+  test('saveSettings sends a modelPricing table when provided', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ provider: 'anthropic' }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    await api.saveSettings({
+      model: 'claude-sonnet-5',
+      modelPricing: { 'claude-sonnet-5': { inputPerMillion: 3, outputPerMillion: 15 } },
+    });
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string).modelPricing).toEqual({
+      'claude-sonnet-5': { inputPerMillion: 3, outputPerMillion: 15 },
+    });
+  });
+
   test('tailor POSTs to /applications/:id/tailor with no body', async () => {
     global.fetch = vi.fn(
       async () => new Response(JSON.stringify({ id: 1, tailored_output: 'X' }), { status: 201 }),

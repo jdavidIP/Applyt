@@ -71,6 +71,13 @@ export interface StatsResponse {
 export const AI_PROVIDERS = ['anthropic', 'openai'] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
+// Per-model pricing (USD per million tokens), user-editable in Settings.
+export interface ModelPrice {
+  inputPerMillion: number;
+  outputPerMillion: number;
+}
+export type ModelPricing = Record<string, ModelPrice>;
+
 // Client-safe settings view from GET /settings — never includes raw API keys.
 export interface PublicSettings {
   provider: AiProvider;
@@ -78,16 +85,18 @@ export interface PublicSettings {
   baseResume: string;
   hasAnthropicKey: boolean;
   hasOpenaiKey: boolean;
+  modelPricing: ModelPricing;
 }
 
 // Partial update sent to PUT /settings. API keys are write-only: omit to leave
-// unchanged, send '' to clear.
+// unchanged, send '' to clear. modelPricing, when sent, replaces the whole table.
 export interface SettingsInput {
   provider?: AiProvider;
   model?: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
   baseResume?: string;
+  modelPricing?: ModelPricing;
 }
 
 export interface ResumeVersion {
@@ -96,5 +105,9 @@ export interface ResumeVersion {
   base_resume_snapshot: string | null;
   tailored_output: string | null;
   ai_provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost: number | null;
   created_at: string;
 }

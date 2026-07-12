@@ -22,13 +22,18 @@ CREATE TABLE IF NOT EXISTS applications (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Created now for schema completeness; unused until Phase 4 (AI resume tailoring).
+-- Phase 4 (AI resume tailoring). The model/token/cost columns record what each
+-- tailor run actually consumed so the dashboard can show real per-resume cost.
 CREATE TABLE IF NOT EXISTS resume_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   application_id INTEGER REFERENCES applications(id),
   base_resume_snapshot TEXT,
   tailored_output TEXT,
   ai_provider TEXT,                             -- 'anthropic' | 'openai'
+  model TEXT,                                   -- the exact model id used for this run
+  input_tokens INTEGER,                         -- prompt tokens billed by the provider
+  output_tokens INTEGER,                        -- completion tokens billed by the provider
+  cost REAL,                                    -- computed $ cost; NULL if the model has no configured pricing
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
