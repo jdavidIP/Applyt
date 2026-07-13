@@ -311,6 +311,8 @@ textarea:focus {
   padding: 24px;
   width: 100%;
   max-width: 620px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 20px 40px rgba(16, 24, 40, 0.2);
 }
 .modal-wide {
@@ -442,7 +444,12 @@ textarea:focus {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 20px;
+  margin: 20px -24px -24px;
+  padding: 16px 24px;
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 
 @media (max-width: 560px) {
