@@ -196,6 +196,31 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(list[0].id, version.id);
 });
 
+test('DELETE /applications/:id succeeds when the application has a tailored resume version', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [{ type: 'text', text: 'TAILORED RESUME OUTPUT' }],
+    usage: { input_tokens: 1000, output_tokens: 500 },
+  });
+  const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(tailorRes.statusCode, 201);
+
+  // applications.resume_version_id and resume_versions.application_id reference
+  // each other, so deletion must clear the app's pointer before dropping its
+  // resume_versions rows, or the FK constraint on resume_version_id rejects it.
+  const deleteRes = await app.inject({ method: 'DELETE', url: `/applications/${created.id}` });
+  assert.equal(deleteRes.statusCode, 204);
+
+  const getRes = await app.inject({ method: 'GET', url: `/applications/${created.id}` });
+  assert.equal(getRes.statusCode, 404);
+});
+
 test('POST /:id/tailor uses the OpenAI response shape and its usage fields', async () => {
   await app.inject({
     method: 'PUT',

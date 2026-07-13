@@ -1,5 +1,5 @@
-import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
-import type Database from 'better-sqlite3';
+import type { FastifyInstance, FastifyPluginOptions } from "fastify";
+import type Database from "better-sqlite3";
 import type {
   Application,
   CreateApplicationBody,
@@ -10,7 +10,7 @@ import type {
   StatsResponse,
   WeeklyCount,
   ResumeVersion,
-} from '../types.js';
+} from "../types.js";
 import {
   createApplicationSchema,
   updateApplicationSchema,
@@ -18,20 +18,22 @@ import {
   idParamSchema,
   markStaleSchema,
   bulkDeleteQuerySchema,
-} from '../validation.js';
-import type { SettingsStore } from '../settings.js';
-import { tailorResume } from '../ai.js';
+} from "../validation.js";
+import type { SettingsStore } from "../settings.js";
+import { tailorResume } from "../ai.js";
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
 // excluded from the denominator entirely — we don't yet know the application
 // was actually completed, so it shouldn't count against the rate either way.
-const RESPONSE_STATUSES = new Set(['interviewing', 'rejected', 'offer']);
+const RESPONSE_STATUSES = new Set(["interviewing", "rejected", "offer"]);
 
 // Monday 00:00:00 UTC of the ISO week containing `d`, used to bucket
 // applications into "applications per week" (CLAUDE.md §7 Phase 3).
 function mondayOf(d: Date): Date {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const date = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+  );
   const day = date.getUTCDay(); // 0=Sun..6=Sat
   const diff = (day === 0 ? -6 : 1) - day;
   date.setUTCDate(date.getUTCDate() + diff);
@@ -64,27 +66,27 @@ interface RoutesOptions extends FastifyPluginOptions {
 
 // Columns exported to CSV, in order.
 const CSV_COLUMNS: (keyof Application)[] = [
-  'id',
-  'platform',
-  'company',
-  'title',
-  'job_url',
-  'platform_job_id',
-  'apply_method',
-  'status',
-  'date_applied',
-  'date_last_updated',
-  'notes',
-  'job_description',
-  'resume_version_id',
-  'created_at',
-  'updated_at',
+  "id",
+  "platform",
+  "company",
+  "title",
+  "job_url",
+  "platform_job_id",
+  "apply_method",
+  "status",
+  "date_applied",
+  "date_last_updated",
+  "notes",
+  "job_description",
+  "resume_version_id",
+  "created_at",
+  "updated_at",
 ];
 
 // Statuses an automatic/manual re-detection of a job is allowed to set. A user's
 // later lifecycle changes (interviewing/rejected/offer/ghosted/stale) must NOT be
 // clobbered by a subsequent re-detect of the same posting.
-const AUTO_STATUSES = new Set(['applied', 'pending_confirmation']);
+const AUTO_STATUSES = new Set(["applied", "pending_confirmation"]);
 
 // Resolve the status when an already-known job is reported again.
 function mergeStatus(existing: string, incoming: string): string {
@@ -93,12 +95,12 @@ function mergeStatus(existing: string, incoming: string): string {
   // Both are auto-ish: a confirmed 'applied' outranks 'pending_confirmation',
   // so promote (e.g. external redirect → user "Mark as applied") but never
   // downgrade a job already marked applied back to pending.
-  if (existing === 'applied' || incoming === 'applied') return 'applied';
+  if (existing === "applied" || incoming === "applied") return "applied";
   return incoming;
 }
 
 function csvEscape(value: unknown): string {
-  if (value === null || value === undefined) return '';
+  if (value === null || value === undefined) return "";
   const s = String(value);
   // Quote if the field contains a comma, quote, CR or LF; double up embedded quotes.
   if (/[",\r\n]/.test(s)) {
@@ -108,10 +110,12 @@ function csvEscape(value: unknown): string {
 }
 
 function toCsv(rows: Application[]): string {
-  const header = CSV_COLUMNS.join(',');
-  const lines = rows.map((row) => CSV_COLUMNS.map((col) => csvEscape(row[col])).join(','));
+  const header = CSV_COLUMNS.join(",");
+  const lines = rows.map((row) =>
+    CSV_COLUMNS.map((col) => csvEscape(row[col])).join(","),
+  );
   // CRLF line endings for maximum spreadsheet compatibility (RFC 4180).
-  return [header, ...lines].join('\r\n') + '\r\n';
+  return [header, ...lines].join("\r\n") + "\r\n";
 }
 
 export default async function applicationsRoutes(
@@ -122,25 +126,26 @@ export default async function applicationsRoutes(
 
   // GET /applications — list with optional platform/status filter and sort.
   fastify.get<{ Querystring: ListApplicationsQuery }>(
-    '/applications',
+    "/applications",
     { schema: { querystring: listApplicationsQuerySchema } },
     async (request) => {
       const { platform, status, sort, order } = request.query;
       const where: string[] = [];
       const params: Record<string, string> = {};
       if (platform) {
-        where.push('platform = @platform');
+        where.push("platform = @platform");
         params.platform = platform;
       }
       if (status) {
-        where.push('status = @status');
+        where.push("status = @status");
         params.status = status;
       }
-      const sortCol = sort === 'date_last_updated' ? 'date_last_updated' : 'date_applied';
-      const sortDir = order === 'asc' ? 'ASC' : 'DESC';
+      const sortCol =
+        sort === "date_last_updated" ? "date_last_updated" : "date_applied";
+      const sortDir = order === "asc" ? "ASC" : "DESC";
       const sql =
         `SELECT * FROM applications` +
-        (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+        (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
         ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}`;
       return db.prepare(sql).all(params) as Application[];
     },
@@ -148,28 +153,34 @@ export default async function applicationsRoutes(
 
   // GET /applications/export.csv — full table as a CSV download.
   // Declared before the ':id' route so 'export.csv' is never parsed as an id.
-  fastify.get('/applications/export.csv', async (_request, reply) => {
+  fastify.get("/applications/export.csv", async (_request, reply) => {
     const rows = db
-      .prepare('SELECT * FROM applications ORDER BY date_applied DESC, id DESC')
+      .prepare("SELECT * FROM applications ORDER BY date_applied DESC, id DESC")
       .all() as Application[];
     reply
-      .header('Content-Type', 'text/csv; charset=utf-8')
-      .header('Content-Disposition', 'attachment; filename="applications.csv"')
+      .header("Content-Type", "text/csv; charset=utf-8")
+      .header("Content-Disposition", 'attachment; filename="applications.csv"')
       .send(toCsv(rows));
   });
 
   // GET /applications/stats — applications-per-week (last 8 weeks) + response rate.
   // Declared before ':id' so 'stats' is never parsed as an id.
-  fastify.get('/applications/stats', async () => {
+  fastify.get("/applications/stats", async () => {
     const rows = db
-      .prepare('SELECT status, date_applied FROM applications')
-      .all() as Pick<Application, 'status' | 'date_applied'>[];
+      .prepare("SELECT status, date_applied FROM applications")
+      .all() as Pick<Application, "status" | "date_applied">[];
 
     const total = rows.length;
-    const responseEligible = rows.filter((r) => r.status !== 'pending_confirmation');
-    const responded = responseEligible.filter((r) => RESPONSE_STATUSES.has(r.status));
+    const responseEligible = rows.filter(
+      (r) => r.status !== "pending_confirmation",
+    );
+    const responded = responseEligible.filter((r) =>
+      RESPONSE_STATUSES.has(r.status),
+    );
     const responseRate =
-      responseEligible.length === 0 ? null : responded.length / responseEligible.length;
+      responseEligible.length === 0
+        ? null
+        : responded.length / responseEligible.length;
 
     const stats: StatsResponse = {
       totalApplications: total,
@@ -184,11 +195,13 @@ export default async function applicationsRoutes(
   // Only 'applied' rows are eligible: any other status is either already a
   // deliberate lifecycle state or not yet confirmed, so leave it alone.
   fastify.post<{ Body: MarkStaleBody }>(
-    '/applications/mark-stale',
+    "/applications/mark-stale",
     { schema: { body: markStaleSchema } },
     async (request) => {
       const { thresholdDays } = request.body;
-      const cutoff = new Date(Date.now() - thresholdDays * 24 * 60 * 60 * 1000).toISOString();
+      const cutoff = new Date(
+        Date.now() - thresholdDays * 24 * 60 * 60 * 1000,
+      ).toISOString();
       const now = new Date().toISOString();
       const info = db
         .prepare(
@@ -206,11 +219,11 @@ export default async function applicationsRoutes(
   // to any status rather than hardcoding 'rejected', since the same query
   // shape is useful for clearing out 'stale'/'ghosted' rows too.
   fastify.delete<{ Querystring: BulkDeleteQuery }>(
-    '/applications',
+    "/applications",
     { schema: { querystring: bulkDeleteQuerySchema } },
     async (request) => {
       const info = db
-        .prepare('DELETE FROM applications WHERE status = ?')
+        .prepare("DELETE FROM applications WHERE status = ?")
         .run(request.query.status);
       return { deleted: info.changes };
     },
@@ -218,27 +231,28 @@ export default async function applicationsRoutes(
 
   // GET /applications/:id — single row.
   fastify.get<{ Params: { id: number } }>(
-    '/applications/:id',
+    "/applications/:id",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
       const row = db
-        .prepare('SELECT * FROM applications WHERE id = ?')
+        .prepare("SELECT * FROM applications WHERE id = ?")
         .get(request.params.id) as Application | undefined;
-      if (!row) return reply.code(404).send({ error: 'Application not found' });
+      if (!row) return reply.code(404).send({ error: "Application not found" });
       return row;
     },
   );
 
   // POST /applications — create. Server owns timestamps and defaults.
   fastify.post<{ Body: CreateApplicationBody }>(
-    '/applications',
+    "/applications",
     { schema: { body: createApplicationSchema } },
     async (request, reply) => {
       const b = request.body;
       const now = new Date().toISOString();
-      const platform = b.platform ?? 'manual';
-      const apply_method = b.apply_method ?? (platform === 'manual' ? 'manual' : 'in_platform');
-      const status = b.status ?? 'applied';
+      const platform = b.platform ?? "manual";
+      const apply_method =
+        b.apply_method ?? (platform === "manual" ? "manual" : "in_platform");
+      const status = b.status ?? "applied";
       const date_applied = b.date_applied ?? now;
 
       // De-duplicate on job identity. A single posting can legitimately be
@@ -249,7 +263,9 @@ export default async function applicationsRoutes(
       // a copy. (No platform_job_id — e.g. a manual dashboard add — always inserts.)
       if (b.platform_job_id) {
         const existing = db
-          .prepare('SELECT * FROM applications WHERE platform = ? AND platform_job_id = ?')
+          .prepare(
+            "SELECT * FROM applications WHERE platform = ? AND platform_job_id = ?",
+          )
           .get(platform, b.platform_job_id) as Application | undefined;
         if (existing) {
           db.prepare(
@@ -268,7 +284,7 @@ export default async function applicationsRoutes(
             id: existing.id,
           });
           const updated = db
-            .prepare('SELECT * FROM applications WHERE id = ?')
+            .prepare("SELECT * FROM applications WHERE id = ?")
             .get(existing.id) as Application;
           return reply.code(200).send(updated);
         }
@@ -302,7 +318,7 @@ export default async function applicationsRoutes(
         });
 
       const created = db
-        .prepare('SELECT * FROM applications WHERE id = ?')
+        .prepare("SELECT * FROM applications WHERE id = ?")
         .get(info.lastInsertRowid) as Application;
       return reply.code(201).send(created);
     },
@@ -310,30 +326,31 @@ export default async function applicationsRoutes(
 
   // PATCH /applications/:id — partial update; bumps date_last_updated + updated_at.
   fastify.patch<{ Params: { id: number }; Body: UpdateApplicationBody }>(
-    '/applications/:id',
+    "/applications/:id",
     { schema: { params: idParamSchema, body: updateApplicationSchema } },
     async (request, reply) => {
       const id = request.params.id;
-      const existing = db.prepare('SELECT * FROM applications WHERE id = ?').get(id) as
-        | Application
-        | undefined;
-      if (!existing) return reply.code(404).send({ error: 'Application not found' });
+      const existing = db
+        .prepare("SELECT * FROM applications WHERE id = ?")
+        .get(id) as Application | undefined;
+      if (!existing)
+        return reply.code(404).send({ error: "Application not found" });
 
       const b = request.body;
       const now = new Date().toISOString();
       const fields: string[] = [];
       const params: Record<string, unknown> = { id };
       const settable: (keyof UpdateApplicationBody)[] = [
-        'platform',
-        'company',
-        'title',
-        'job_url',
-        'platform_job_id',
-        'apply_method',
-        'status',
-        'date_applied',
-        'notes',
-        'job_description',
+        "platform",
+        "company",
+        "title",
+        "job_url",
+        "platform_job_id",
+        "apply_method",
+        "status",
+        "date_applied",
+        "notes",
+        "job_description",
       ];
       for (const key of settable) {
         if (Object.prototype.hasOwnProperty.call(b, key)) {
@@ -342,22 +359,44 @@ export default async function applicationsRoutes(
         }
       }
       // Always bump these on any update.
-      fields.push('date_last_updated = @date_last_updated', 'updated_at = @updated_at');
+      fields.push(
+        "date_last_updated = @date_last_updated",
+        "updated_at = @updated_at",
+      );
       params.date_last_updated = now;
       params.updated_at = now;
 
-      db.prepare(`UPDATE applications SET ${fields.join(', ')} WHERE id = @id`).run(params);
-      return db.prepare('SELECT * FROM applications WHERE id = ?').get(id) as Application;
+      db.prepare(
+        `UPDATE applications SET ${fields.join(", ")} WHERE id = @id`,
+      ).run(params);
+      return db
+        .prepare("SELECT * FROM applications WHERE id = ?")
+        .get(id) as Application;
     },
   );
 
   // DELETE /applications/:id
   fastify.delete<{ Params: { id: number } }>(
-    '/applications/:id',
+    "/applications/:id",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
-      const info = db.prepare('DELETE FROM applications WHERE id = ?').run(request.params.id);
-      if (info.changes === 0) return reply.code(404).send({ error: 'Application not found' });
+      const id = request.params.id;
+      // applications.resume_version_id and resume_versions.application_id
+      // reference each other, so the app's pointer must be cleared before its
+      // resume_versions rows can be deleted, or the FK constraint on
+      // resume_version_id rejects the delete.
+      const deleteApplication = db.transaction(() => {
+        db.prepare(
+          "UPDATE applications SET resume_version_id = NULL WHERE id = ?",
+        ).run(id);
+        db.prepare("DELETE FROM resume_versions WHERE application_id = ?").run(
+          id,
+        );
+        return db.prepare("DELETE FROM applications WHERE id = ?").run(id);
+      });
+      const info = deleteApplication();
+      if (info.changes === 0)
+        return reply.code(404).send({ error: "Application not found" });
       return reply.code(204).send();
     },
   );
@@ -367,27 +406,28 @@ export default async function applicationsRoutes(
   // stores the result in resume_versions, and links it to the application. This
   // is the only route that makes an outbound network call (see ai.ts).
   fastify.post<{ Params: { id: number } }>(
-    '/applications/:id/tailor',
+    "/applications/:id/tailor",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
-      const app = db.prepare('SELECT * FROM applications WHERE id = ?').get(request.params.id) as
-        | Application
-        | undefined;
-      if (!app) return reply.code(404).send({ error: 'Application not found' });
+      const app = db
+        .prepare("SELECT * FROM applications WHERE id = ?")
+        .get(request.params.id) as Application | undefined;
+      if (!app) return reply.code(404).send({ error: "Application not found" });
 
-      const jobDescription = (app.job_description ?? '').trim();
+      const jobDescription = (app.job_description ?? "").trim();
       if (!jobDescription) {
-        return reply
-          .code(400)
-          .send({ error: 'This application has no job description to tailor against. Add one first.' });
+        return reply.code(400).send({
+          error:
+            "This application has no job description to tailor against. Add one first.",
+        });
       }
 
       const cfg = settings.read();
       const baseResume = cfg.baseResume.trim();
       if (!baseResume) {
-        return reply
-          .code(400)
-          .send({ error: 'No base resume is configured. Add one in Settings first.' });
+        return reply.code(400).send({
+          error: "No base resume is configured. Add one in Settings first.",
+        });
       }
 
       const apiKey = settings.resolveApiKey(cfg.provider);
@@ -415,9 +455,10 @@ export default async function applicationsRoutes(
         // Upstream provider failure (bad key, rate limit, bad model, network) —
         // 502, surfacing the provider's own message for the dashboard to show.
         request.log.error(err);
-        return reply
-          .code(502)
-          .send({ error: err instanceof Error ? err.message : 'AI provider request failed.' });
+        return reply.code(502).send({
+          error:
+            err instanceof Error ? err.message : "AI provider request failed.",
+        });
       }
 
       // Actual cost = tokens × the configured price for this model. NULL when the
@@ -451,11 +492,11 @@ export default async function applicationsRoutes(
 
       // Point the application at its newest tailored version.
       db.prepare(
-        'UPDATE applications SET resume_version_id = @rvid, updated_at = @now WHERE id = @id',
+        "UPDATE applications SET resume_version_id = @rvid, updated_at = @now WHERE id = @id",
       ).run({ rvid: info.lastInsertRowid, now, id: app.id });
 
       const created = db
-        .prepare('SELECT * FROM resume_versions WHERE id = ?')
+        .prepare("SELECT * FROM resume_versions WHERE id = ?")
         .get(info.lastInsertRowid) as ResumeVersion;
       return reply.code(201).send(created);
     },
@@ -464,12 +505,12 @@ export default async function applicationsRoutes(
   // GET /applications/:id/resume-versions — all tailored versions for a job,
   // newest first.
   fastify.get<{ Params: { id: number } }>(
-    '/applications/:id/resume-versions',
+    "/applications/:id/resume-versions",
     { schema: { params: idParamSchema } },
     async (request) => {
       return db
         .prepare(
-          'SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC',
+          "SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC",
         )
         .all(request.params.id) as ResumeVersion[];
     },
