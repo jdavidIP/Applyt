@@ -160,5 +160,23 @@ export interface ResumeVersion {
   input_tokens: number | null;
   output_tokens: number | null;
   cost: number | null;
+  input_char_length: number | null;
   created_at: string;
+}
+
+// Pre-generate cost estimate for POST /:id/tailor, shown before the user
+// spends real money running it (CLAUDE.md §7 Phase 4 follow-up).
+// - 'historical': extrapolated from this model's actual $-per-char across past
+//   tailor runs — the best estimate, since it reflects real provider pricing
+//   and prompt overhead.
+// - 'static': no history yet for this model, so a rough one using the
+//   configured per-token pricing and a char/4 token approximation, assuming
+//   output length roughly matches input length.
+// - 'unavailable': no history AND no configured pricing for this model —
+//   estimatedCost is null rather than a fabricated number.
+export interface TailorEstimate {
+  estimatedCost: number | null;
+  source: 'historical' | 'static' | 'unavailable';
+  sampleSize?: number;
+  model: string;
 }

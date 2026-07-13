@@ -55,4 +55,10 @@ function migrate(db: Database.Database): void {
   if (!hasColumn('resume_versions', 'cost')) {
     db.exec('ALTER TABLE resume_versions ADD COLUMN cost REAL');
   }
+
+  // Cost-estimate feature: input length in chars, so a future tailor run's cost
+  // can be extrapolated from this model's historical $-per-char.
+  if (!hasColumn('resume_versions', 'input_char_length')) {
+    db.exec('ALTER TABLE resume_versions ADD COLUMN input_char_length INTEGER');
+  }
 }

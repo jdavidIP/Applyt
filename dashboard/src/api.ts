@@ -7,6 +7,7 @@ import type {
   PublicSettings,
   SettingsInput,
   ResumeVersion,
+  TailorEstimate,
 } from './types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
@@ -90,6 +91,9 @@ export const api = {
 
   tailor: (id: number): Promise<ResumeVersion> =>
     request<ResumeVersion>(`/applications/${id}/tailor`, { method: 'POST' }),
+
+  estimateTailorCost: (id: number): Promise<TailorEstimate> =>
+    request<TailorEstimate>(`/applications/${id}/tailor-estimate`),
 
   listResumeVersions: (id: number): Promise<ResumeVersion[]> =>
     request<ResumeVersion[]>(`/applications/${id}/resume-versions`),

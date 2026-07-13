@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { formatDate } from '../labels';
-import type { Application, ResumeVersion } from '../types';
+import type { Application, ResumeVersion, TailorEstimate } from '../types';
 
 interface Props {
   application: Application;
@@ -29,6 +29,21 @@ function usageSummary(v: ResumeVersion): string {
   return [v.model, tokens, formatCost(v.cost)].filter(Boolean).join(' · ');
 }
 
+// Describes a pre-generate estimate. 'historical' is the trustworthy case
+// (extrapolated from this model's own real cost history); 'static' is a rough
+// chars/4-token guess with no history yet; 'unavailable' means the model has
+// neither, so no number is shown at all — never a fabricated one.
+function estimateSummary(e: TailorEstimate): string {
+  if (e.source === 'unavailable' || e.estimatedCost === null) {
+    return `Cost estimate unavailable — no pricing configured for ${e.model}.`;
+  }
+  const cost = formatCost(e.estimatedCost);
+  if (e.source === 'historical') {
+    return `Estimated cost: ~${cost} (based on ${e.sampleSize} previous run${e.sampleSize === 1 ? '' : 's'})`;
+  }
+  return `Estimated cost: ~${cost} (rough estimate, no history yet for ${e.model})`;
+}
+
 // Phase 4 (CLAUDE.md §7): "Tailor for this job" — sends the base resume + this
 // application's job description to the configured AI provider and stores the
 // result. Prior tailored versions for the job are listed and viewable.
@@ -38,6 +53,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [estimate, setEstimate] = useState<TailorEstimate | null>(null);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
 
@@ -58,6 +74,27 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     };
   }, [application.id]);
 
+  useEffect(() => {
+    if (!hasJobDescription) {
+      setEstimate(null);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const est = await api.estimateTailorCost(application.id);
+        if (active) setEstimate(est);
+      } catch {
+        // Estimate is supplementary (e.g. no base resume configured yet) —
+        // fail silently rather than blocking the tailor action on it.
+        if (active) setEstimate(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [application.id, hasJobDescription]);
+
   async function handleGenerate() {
     setGenerating(true);
     setError(null);
@@ -66,6 +103,13 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
       setVersions((prev) => [version, ...prev]);
       setSelected(version);
       onTailored();
+      // Refresh the estimate so a follow-up run in this session reflects the
+      // history this run just added.
+      try {
+        setEstimate(await api.estimateTailorCost(application.id));
+      } catch {
+        // Non-critical; leave the previous estimate displayed.
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to tailor resume.');
     } finally {
@@ -109,6 +153,8 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
             <span className="muted-note">{versions.length} version(s) saved</span>
           )}
         </div>
+
+        {estimate && <p className="muted-note tailor-estimate">{estimateSummary(estimate)}</p>}
 
         {error && <p className="form-error">{error}</p>}
 

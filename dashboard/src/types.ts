@@ -109,5 +109,15 @@ export interface ResumeVersion {
   input_tokens: number | null;
   output_tokens: number | null;
   cost: number | null;
+  input_char_length: number | null;
   created_at: string;
+}
+
+// Pre-generate cost estimate from GET /:id/tailor-estimate, shown before
+// spending real money on a tailor run.
+export interface TailorEstimate {
+  estimatedCost: number | null;
+  source: 'historical' | 'static' | 'unavailable';
+  sampleSize?: number;
+  model: string;
 }

@@ -10,6 +10,7 @@ import type {
   StatsResponse,
   WeeklyCount,
   ResumeVersion,
+  TailorEstimate,
 } from "../types.js";
 import {
   createApplicationSchema,
@@ -401,6 +402,86 @@ export default async function applicationsRoutes(
     },
   );
 
+  // GET /applications/:id/tailor-estimate — predicted cost of a tailor run,
+  // shown before the user spends real money on POST /:id/tailor. Prefers a
+  // historical extrapolation (this model's actual $-per-char of input, from
+  // past runs) and falls back to a static per-token estimate off the
+  // configured pricing table when the model has no history yet.
+  fastify.get<{ Params: { id: number } }>(
+    "/applications/:id/tailor-estimate",
+    { schema: { params: idParamSchema } },
+    async (request, reply) => {
+      const app = db
+        .prepare("SELECT * FROM applications WHERE id = ?")
+        .get(request.params.id) as Application | undefined;
+      if (!app) return reply.code(404).send({ error: "Application not found" });
+
+      const jobDescription = (app.job_description ?? "").trim();
+      if (!jobDescription) {
+        return reply.code(400).send({
+          error:
+            "This application has no job description to tailor against. Add one first.",
+        });
+      }
+
+      const cfg = settings.read();
+      const baseResume = cfg.baseResume.trim();
+      if (!baseResume) {
+        return reply.code(400).send({
+          error: "No base resume is configured. Add one in Settings first.",
+        });
+      }
+
+      const inputCharLength = baseResume.length + jobDescription.length;
+
+      const history = db
+        .prepare(
+          `SELECT cost, input_char_length FROM resume_versions
+           WHERE model = ? AND cost IS NOT NULL AND input_char_length IS NOT NULL
+             AND input_char_length > 0`,
+        )
+        .all(cfg.model) as { cost: number; input_char_length: number }[];
+
+      if (history.length > 0) {
+        // Weighted average $-per-char across all historical runs of this model
+        // (sum of costs over sum of chars), extrapolated to this input's length.
+        const totalCost = history.reduce((sum, h) => sum + h.cost, 0);
+        const totalChars = history.reduce((sum, h) => sum + h.input_char_length, 0);
+        const costPerChar = totalCost / totalChars;
+        const estimate: TailorEstimate = {
+          estimatedCost: costPerChar * inputCharLength,
+          source: "historical",
+          sampleSize: history.length,
+          model: cfg.model,
+        };
+        return estimate;
+      }
+
+      const price = cfg.modelPricing[cfg.model];
+      if (!price) {
+        const estimate: TailorEstimate = {
+          estimatedCost: null,
+          source: "unavailable",
+          model: cfg.model,
+        };
+        return estimate;
+      }
+
+      // No history yet: rough estimate from chars/4 ≈ tokens, assuming the
+      // tailored output is roughly as long as the input resume.
+      const estimatedInputTokens = Math.ceil(inputCharLength / 4);
+      const estimatedOutputTokens = estimatedInputTokens;
+      const estimate: TailorEstimate = {
+        estimatedCost:
+          (estimatedInputTokens / 1_000_000) * price.inputPerMillion +
+          (estimatedOutputTokens / 1_000_000) * price.outputPerMillion,
+        source: "static",
+        model: cfg.model,
+      };
+      return estimate;
+    },
+  );
+
   // POST /applications/:id/tailor — AI resume tailoring (CLAUDE.md §7 Phase 4).
   // Sends the base resume + this job's description to the user's chosen provider,
   // stores the result in resume_versions, and links it to the application. This
@@ -474,9 +555,9 @@ export default async function applicationsRoutes(
         .prepare(
           `INSERT INTO resume_versions
              (application_id, base_resume_snapshot, tailored_output, ai_provider,
-              model, input_tokens, output_tokens, cost, created_at)
+              model, input_tokens, output_tokens, cost, input_char_length, created_at)
            VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider,
-              @model, @input_tokens, @output_tokens, @cost, @created_at)`,
+              @model, @input_tokens, @output_tokens, @cost, @input_char_length, @created_at)`,
         )
         .run({
           application_id: app.id,
@@ -487,6 +568,7 @@ export default async function applicationsRoutes(
           input_tokens: usage.inputTokens,
           output_tokens: usage.outputTokens,
           cost,
+          input_char_length: baseResume.length + jobDescription.length,
           created_at: now,
         });
 

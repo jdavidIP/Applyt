@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS resume_versions (
   input_tokens INTEGER,                         -- prompt tokens billed by the provider
   output_tokens INTEGER,                        -- completion tokens billed by the provider
   cost REAL,                                    -- computed $ cost; NULL if the model has no configured pricing
+  input_char_length INTEGER,                    -- chars of (base resume + job description) sent, for cost estimation
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

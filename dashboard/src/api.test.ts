@@ -187,4 +187,18 @@ describe('api Phase 4 tailoring functions', () => {
     const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toContain('/applications/7/resume-versions');
   });
+
+  test('estimateTailorCost GETs /applications/:id/tailor-estimate with no body', async () => {
+    const payload = { estimatedCost: 0.0105, source: 'historical', sampleSize: 3, model: 'claude-sonnet-5' };
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify(payload), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.estimateTailorCost(7);
+    expect(result).toEqual(payload);
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/applications/7/tailor-estimate');
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.has('Content-Type')).toBe(false);
+  });
 });

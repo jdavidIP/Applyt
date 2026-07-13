@@ -221,6 +221,78 @@ test('DELETE /applications/:id succeeds when the application has a tailored resu
   assert.equal(getRes.statusCode, 404);
 });
 
+test('GET /:id/tailor-estimate 400s when there is no job description', async () => {
+  await app.inject({ method: 'PUT', url: '/settings', payload: { baseResume: 'BASE' } });
+  const created = await createApp();
+  const res = await app.inject({ method: 'GET', url: `/applications/${created.id}/tailor-estimate` });
+  assert.equal(res.statusCode, 400);
+  assert.match((res.json() as { error: string }).error, /job description/i);
+});
+
+test('GET /:id/tailor-estimate 400s when no base resume is configured', async () => {
+  const created = await createApp({ job_description: 'Build things.' });
+  const res = await app.inject({ method: 'GET', url: `/applications/${created.id}/tailor-estimate` });
+  assert.equal(res.statusCode, 400);
+  assert.match((res.json() as { error: string }).error, /base resume/i);
+});
+
+test('GET /:id/tailor-estimate is unavailable for an unpriced model with no history', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { model: 'some-unlisted-model', baseResume: 'BASE' },
+  });
+  const created = await createApp({ job_description: 'Some role.' });
+  const res = await app.inject({ method: 'GET', url: `/applications/${created.id}/tailor-estimate` });
+  assert.equal(res.statusCode, 200);
+  const estimate = res.json() as { estimatedCost: number | null; source: string };
+  assert.equal(estimate.source, 'unavailable');
+  assert.equal(estimate.estimatedCost, null);
+});
+
+test('GET /:id/tailor-estimate falls back to a static per-token estimate with no history', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', model: 'claude-sonnet-5', baseResume: 'x'.repeat(400) },
+  });
+  const created = await createApp({ job_description: 'y'.repeat(400) });
+  const res = await app.inject({ method: 'GET', url: `/applications/${created.id}/tailor-estimate` });
+  assert.equal(res.statusCode, 200);
+  const estimate = res.json() as { estimatedCost: number; source: string };
+  assert.equal(estimate.source, 'static');
+  // 800 chars / 4 = 200 tokens in, 200 tokens out (same-length heuristic).
+  // (200/1e6)*3 + (200/1e6)*15 = 0.0006 + 0.003 = 0.0036
+  assert.ok(Math.abs(estimate.estimatedCost - 0.0036) < 1e-9);
+});
+
+test('GET /:id/tailor-estimate extrapolates from historical cost-per-char once a run exists', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant', model: 'claude-sonnet-5', baseResume: 'BASE' },
+  });
+  const first = await createApp({ job_description: 'Role one.' });
+  stubFetch(200, {
+    content: [{ type: 'text', text: 'OUT' }],
+    usage: { input_tokens: 1000, output_tokens: 500 },
+  });
+  const tailorRes = await app.inject({ method: 'POST', url: `/applications/${first.id}/tailor` });
+  assert.equal(tailorRes.statusCode, 201);
+  const version = tailorRes.json() as ResumeVersion;
+  assert.ok(version.cost !== null && version.input_char_length !== null);
+  const knownCostPerChar = (version.cost as number) / (version.input_char_length as number);
+
+  const second = await createApp({ job_description: 'Role two.' });
+  const res = await app.inject({ method: 'GET', url: `/applications/${second.id}/tailor-estimate` });
+  assert.equal(res.statusCode, 200);
+  const estimate = res.json() as { estimatedCost: number; source: string; sampleSize: number };
+  assert.equal(estimate.source, 'historical');
+  assert.equal(estimate.sampleSize, 1);
+  const expectedChars = 'BASE'.length + 'Role two.'.length;
+  assert.ok(Math.abs(estimate.estimatedCost - knownCostPerChar * expectedChars) < 1e-9);
+});
+
 test('POST /:id/tailor uses the OpenAI response shape and its usage fields', async () => {
   await app.inject({
     method: 'PUT',
