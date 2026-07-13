@@ -15,6 +15,10 @@ export interface TailorParams {
   jobDescription: string;
   company: string;
   title: string;
+  // Both default to true (callers should pass explicit values); the resume
+  // section is always produced regardless of these flags.
+  includeMatchRating: boolean;
+  includeSuggestions: boolean;
 }
 
 export interface TailorResult {
@@ -57,48 +61,67 @@ function openaiModelsUrl(): string {
 }
 
 // A strict, marker-delimited layout so the dashboard and download endpoints can
-// parse the four sections out reliably (parseTailoredResume, tailoredResume.ts)
-// rather than guessing at loose headings.
-function systemPrompt(): string {
-  return [
-    'You are an expert resume writer, career coach, and technical recruiter.',
-    'You will receive a candidate\'s base resume and a specific job description.',
-    '',
-    'Return your response as EXACTLY these four sections, each introduced by its',
-    'marker on its own line, in this order and with these exact markers:',
-    '',
-    RESUME_MARKER,
-    RATING_MARKER,
-    JUSTIFICATION_MARKER,
-    SUGGESTIONS_MARKER,
-    '',
-    'Output nothing before the first marker and nothing after the last section.',
-    'Do not add any other markers, headings, code fences, or commentary outside',
-    'the four sections. Use "- " for every bullet point.',
-    '',
+// parse the sections out reliably (parseTailoredResume, tailoredResume.ts)
+// rather than guessing at loose headings. The resume section is always
+// produced; the match-rating (+ justification) and suggestions sections are
+// each optional, per the caller's request, so the model is never asked (and
+// never billed) to produce a section the user doesn't want.
+function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean): string {
+  const markers = [RESUME_MARKER];
+  if (includeMatchRating) markers.push(RATING_MARKER, JUSTIFICATION_MARKER);
+  if (includeSuggestions) markers.push(SUGGESTIONS_MARKER);
+
+  const sections = [
     `${RESUME_MARKER}`,
     'A tailored, submission-ready version of the candidate\'s resume in plain text.',
     'Emphasize the experience and skills most relevant to this role and echo the job',
     'description\'s language where the candidate genuinely matches it. NEVER invent',
     'experience, employers, dates, titles, or credentials the candidate does not',
     'already have — only reorganize, reword, and re-emphasize what is present.',
+  ];
+
+  if (includeMatchRating) {
+    sections.push(
+      '',
+      `${RATING_MARKER}`,
+      'A single integer from 0 to 5 on its own line, rating how well the candidate\'s',
+      'resume matches this job: 5 = an excellent, near-complete match; 0 = the posting',
+      'is essentially out of scope for this resume. Output only the digit — no stars,',
+      'no "/5", no words.',
+      '',
+      `${JUSTIFICATION_MARKER}`,
+      'Three to six concise "- " bullet points explaining the rating: which key',
+      'requirements the candidate clearly meets, which are only partially met, and',
+      'which are missing or unproven. Be honest and specific, referencing concrete',
+      'requirements from the job description.',
+    );
+  }
+
+  if (includeSuggestions) {
+    sections.push(
+      '',
+      `${SUGGESTIONS_MARKER}`,
+      'Concrete, honest guidance as "- " bullet points: specific things to emphasize',
+      'or bring up in an interview, gaps to proactively address, and points worth',
+      'adding to a cover letter.',
+    );
+  }
+
+  return [
+    'You are an expert resume writer, career coach, and technical recruiter.',
+    'You will receive a candidate\'s base resume and a specific job description.',
     '',
-    `${RATING_MARKER}`,
-    'A single integer from 0 to 5 on its own line, rating how well the candidate\'s',
-    'resume matches this job: 5 = an excellent, near-complete match; 0 = the posting',
-    'is essentially out of scope for this resume. Output only the digit — no stars,',
-    'no "/5", no words.',
+    `Return your response as EXACTLY ${markers.length} section${markers.length === 1 ? '' : 's'}, each`,
+    'introduced by its marker on its own line, in this order and with these exact',
+    'markers:',
     '',
-    `${JUSTIFICATION_MARKER}`,
-    'Three to six concise "- " bullet points explaining the rating: which key',
-    'requirements the candidate clearly meets, which are only partially met, and',
-    'which are missing or unproven. Be honest and specific, referencing concrete',
-    'requirements from the job description.',
+    ...markers,
     '',
-    `${SUGGESTIONS_MARKER}`,
-    'Concrete, honest guidance as "- " bullet points: specific things to emphasize',
-    'or bring up in an interview, gaps to proactively address, and points worth',
-    'adding to a cover letter.',
+    'Output nothing before the first marker and nothing after the last section.',
+    'Do not add any other markers, headings, code fences, or commentary outside',
+    `the ${markers.length === 1 ? 'section' : 'sections'} listed above. Use "- " for every bullet point.`,
+    '',
+    ...sections,
   ].join('\n');
 }
 
@@ -112,7 +135,7 @@ function userPrompt(p: TailorParams): string {
     'BASE RESUME:',
     p.baseResume,
     '',
-    'Produce the four marked sections exactly as specified.',
+    'Produce the marked section(s) exactly as specified.',
   ].join('\n');
 }
 
@@ -127,7 +150,7 @@ async function callAnthropic(p: TailorParams): Promise<{ text: string; usage: To
     body: JSON.stringify({
       model: p.model,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt(),
+      system: systemPrompt(p.includeMatchRating, p.includeSuggestions),
       messages: [{ role: 'user', content: userPrompt(p) }],
     }),
   });
@@ -162,7 +185,7 @@ async function callOpenai(p: TailorParams): Promise<{ text: string; usage: Token
       model: p.model,
       max_tokens: MAX_TOKENS,
       messages: [
-        { role: 'system', content: systemPrompt() },
+        { role: 'system', content: systemPrompt(p.includeMatchRating, p.includeSuggestions) },
         { role: 'user', content: userPrompt(p) },
       ],
     }),

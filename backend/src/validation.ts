@@ -117,6 +117,11 @@ export const resumeVersionParamSchema = {
   },
 } as const;
 
+// No body schema for POST /:id/tailor: the body is entirely optional (a
+// bodyless request must keep working, and Fastify's schema validation
+// rejects `undefined` against any `type: 'object'` schema even when nothing
+// is required), so its two boolean flags are validated by hand in the route.
+
 export const resumeDownloadQuerySchema = {
   type: 'object',
   required: ['format'],

@@ -163,19 +163,20 @@ describe('api Phase 4 tailoring functions', () => {
     });
   });
 
-  test('tailor POSTs to /applications/:id/tailor with no body', async () => {
+  test('tailor POSTs to /applications/:id/tailor with the include-section options', async () => {
     global.fetch = vi.fn(
       async () => new Response(JSON.stringify({ id: 1, tailored_output: 'X' }), { status: 201 }),
     ) as unknown as typeof fetch;
 
-    const result = await api.tailor(7);
+    const result = await api.tailor(7, { includeMatchRating: false, includeSuggestions: true });
     expect(result).toEqual({ id: 1, tailored_output: 'X' });
     const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toContain('/applications/7/tailor');
     expect((init as RequestInit).method).toBe('POST');
-    // Bodyless POST must not declare a JSON content-type (same guard as DELETE).
-    const headers = new Headers((init as RequestInit).headers);
-    expect(headers.has('Content-Type')).toBe(false);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      includeMatchRating: false,
+      includeSuggestions: true,
+    });
   });
 
   test('listResumeVersions GETs /applications/:id/resume-versions', async () => {

@@ -8,6 +8,7 @@ import type {
   SettingsInput,
   ResumeVersion,
   TailorEstimate,
+  TailorOptions,
   ModelsResponse,
   KnownPricingResponse,
   ExtractResumeTextResponse,
@@ -108,8 +109,11 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
-  tailor: (id: number): Promise<ResumeVersion> =>
-    request<ResumeVersion>(`/applications/${id}/tailor`, { method: 'POST' }),
+  tailor: (id: number, options: TailorOptions): Promise<ResumeVersion> =>
+    request<ResumeVersion>(`/applications/${id}/tailor`, {
+      method: 'POST',
+      body: JSON.stringify(options),
+    }),
 
   estimateTailorCost: (id: number): Promise<TailorEstimate> =>
     request<TailorEstimate>(`/applications/${id}/tailor-estimate`),

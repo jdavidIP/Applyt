@@ -83,6 +83,8 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [copied, setCopied] = useState(false);
   const [estimate, setEstimate] = useState<TailorEstimate | null>(null);
   const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(null);
+  const [includeMatchRating, setIncludeMatchRating] = useState(true);
+  const [includeSuggestions, setIncludeSuggestions] = useState(true);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
 
@@ -135,7 +137,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     setGenerating(true);
     setError(null);
     try {
-      const version = await api.tailor(application.id);
+      const version = await api.tailor(application.id, { includeMatchRating, includeSuggestions });
       setVersions((prev) => [version, ...prev]);
       setSelected(version);
       onTailored();
@@ -196,6 +198,27 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
             This application has no job description yet. Add one via Edit before tailoring.
           </p>
         )}
+
+        <div className="tailor-options">
+          <label>
+            <input
+              type="checkbox"
+              checked={includeMatchRating}
+              onChange={(e) => setIncludeMatchRating(e.target.checked)}
+              disabled={generating}
+            />
+            Include match rating
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={includeSuggestions}
+              onChange={(e) => setIncludeSuggestions(e.target.checked)}
+              disabled={generating}
+            />
+            Include interview &amp; cover-letter suggestions
+          </label>
+        </div>
 
         <div className="tailor-actions">
           <button

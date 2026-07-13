@@ -12,6 +12,7 @@ import type {
   ResumeVersion,
   TailorEstimate,
   ResumeDownloadFormat,
+  TailorRequestBody,
 } from "../types.js";
 import {
   createApplicationSchema,
@@ -491,7 +492,7 @@ export default async function applicationsRoutes(
   // Sends the base resume + this job's description to the user's chosen provider,
   // stores the result in resume_versions, and links it to the application. This
   // is the only route that makes an outbound network call (see ai.ts).
-  fastify.post<{ Params: { id: number } }>(
+  fastify.post<{ Params: { id: number }; Body: TailorRequestBody }>(
     "/applications/:id/tailor",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
@@ -499,6 +500,18 @@ export default async function applicationsRoutes(
         .prepare("SELECT * FROM applications WHERE id = ?")
         .get(request.params.id) as Application | undefined;
       if (!app) return reply.code(404).send({ error: "Application not found" });
+
+      const body = request.body ?? {};
+      if (
+        (body.includeMatchRating !== undefined && typeof body.includeMatchRating !== "boolean") ||
+        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean")
+      ) {
+        return reply.code(400).send({
+          error: "includeMatchRating and includeSuggestions must be booleans if provided.",
+        });
+      }
+      const includeMatchRating = body.includeMatchRating ?? true;
+      const includeSuggestions = body.includeSuggestions ?? true;
 
       const jobDescription = (app.job_description ?? "").trim();
       if (!jobDescription) {
@@ -534,6 +547,8 @@ export default async function applicationsRoutes(
           jobDescription,
           company: app.company,
           title: app.title,
+          includeMatchRating,
+          includeSuggestions,
         });
         output = result.output;
         usage = result.usage;

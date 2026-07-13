@@ -113,6 +113,14 @@ export interface ResumeVersion {
   created_at: string;
 }
 
+// Body for POST /:id/tailor — lets the user opt out of the match rating
+// and/or suggestions sections (any combination). Omitted fields default to
+// true on the backend.
+export interface TailorOptions {
+  includeMatchRating?: boolean;
+  includeSuggestions?: boolean;
+}
+
 // Pre-generate cost estimate from GET /:id/tailor-estimate, shown before
 // spending real money on a tailor run.
 export interface TailorEstimate {

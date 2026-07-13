@@ -113,13 +113,16 @@ fix the JSON, not the content script.
    offers a live list of models from your own account (fetched from the provider
    using that key) — you can still type a custom model id if you prefer one that
    isn't listed.
-2. On any application with a job description, click **Tailor for this job**. The
-   dashboard shows an estimated cost first — extrapolated from your own tailoring
-   history for that model once you have some, or a rough estimate otherwise. Each
-   run returns three things: the tailored resume, a **match rating** (0–5 stars,
-   with a short justification of which requirements you meet, partially meet, or
-   are missing), and **interview & cover-letter suggestions**. Real token usage
-   and actual cost are shown once it completes.
+2. On any application with a job description, click **Tailor for this job**. Two
+   checkboxes let you choose whether to also receive a **match rating** (0–5
+   stars, with a short justification of which requirements you meet, partially
+   meet, or are missing) and **interview & cover-letter suggestions** — any
+   combination of both, one, or neither; the tailored resume itself is always
+   produced. Sections you opt out of are never requested from the model, so
+   you're not billed for output you don't want. The dashboard shows an
+   estimated cost first — extrapolated from your own tailoring history for
+   that model once you have some, or a rough estimate otherwise. Real token
+   usage and actual cost are shown once it completes.
 3. Your base resume can be pasted as plain text or uploaded as a PDF/Word (.docx)
    file — an upload extracts the text for you to review and edit before saving.
 4. Download any tailored resume as **PDF, Word (.docx), or plain text**; the match

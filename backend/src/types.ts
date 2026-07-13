@@ -181,6 +181,15 @@ export interface TailorEstimate {
   model: string;
 }
 
+// Body for POST /:id/tailor — lets the user opt out of the match rating
+// and/or suggestions sections (any combination of both, one, or neither),
+// so the model is never asked to produce a section that will just be
+// discarded. Omitted fields default to true (both included).
+export interface TailorRequestBody {
+  includeMatchRating?: boolean;
+  includeSuggestions?: boolean;
+}
+
 // The four sections every tailor run produces, parsed out of the raw
 // tailored_output blob (see tailoredResume.ts). The AI is prompted to emit a
 // strict, marker-delimited layout so this is reliably parseable; matchRating
