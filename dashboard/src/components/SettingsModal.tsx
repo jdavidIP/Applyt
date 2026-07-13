@@ -204,6 +204,10 @@ export function SettingsModal({ onClose }: Props) {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (!model.trim()) {
+      setError('Model is required.');
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -262,6 +266,7 @@ export function SettingsModal({ onClose }: Props) {
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="e.g. claude-sonnet-5 or gpt-4o"
                 list="model-options"
+                required
               />
               <datalist id="model-options">
                 {availableModels.map((m) => (
