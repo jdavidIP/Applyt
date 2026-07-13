@@ -11,6 +11,7 @@ import type {
   WeeklyCount,
   ResumeVersion,
   TailorEstimate,
+  ResumeDownloadFormat,
 } from "../types.js";
 import {
   createApplicationSchema,
@@ -19,9 +20,12 @@ import {
   idParamSchema,
   markStaleSchema,
   bulkDeleteQuerySchema,
+  resumeVersionParamSchema,
+  resumeDownloadQuerySchema,
 } from "../validation.js";
 import type { SettingsStore } from "../settings.js";
 import { tailorResume } from "../ai.js";
+import { splitSuggestions, renderPdf, renderDocx } from "../resumeRender.js";
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
@@ -595,6 +599,51 @@ export default async function applicationsRoutes(
           "SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC",
         )
         .all(request.params.id) as ResumeVersion[];
+    },
+  );
+
+  // GET /applications/:id/resume-versions/:versionId/download?format=pdf|docx|txt
+  // Renders the stored plain-text tailored_output on demand rather than storing
+  // multiple binary formats per version — any past or present version becomes
+  // downloadable in any format, with no schema changes and no re-running the
+  // AI call. PDF/DOCX render only the resume portion (ai.ts's prompt always
+  // appends a "Suggestions:" section, which isn't part of a submittable
+  // resume); .txt keeps the full text, matching the dashboard's "Copy" button.
+  fastify.get<{
+    Params: { id: number; versionId: number };
+    Querystring: { format: ResumeDownloadFormat };
+  }>(
+    "/applications/:id/resume-versions/:versionId/download",
+    { schema: { params: resumeVersionParamSchema, querystring: resumeDownloadQuerySchema } },
+    async (request, reply) => {
+      const { id, versionId } = request.params;
+      const version = db
+        .prepare("SELECT * FROM resume_versions WHERE id = ? AND application_id = ?")
+        .get(versionId, id) as ResumeVersion | undefined;
+      if (!version || !version.tailored_output) {
+        return reply.code(404).send({ error: "Resume version not found." });
+      }
+
+      const { format } = request.query;
+      const filenameBase = `resume-${id}-${versionId}`;
+
+      if (format === "txt") {
+        reply.header("Content-Disposition", `attachment; filename="${filenameBase}.txt"`);
+        return reply.type("text/plain").send(version.tailored_output);
+      }
+
+      const { resume } = splitSuggestions(version.tailored_output);
+      if (format === "pdf") {
+        const buffer = await renderPdf(resume);
+        reply.header("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
+        return reply.type("application/pdf").send(buffer);
+      }
+
+      const buffer = await renderDocx(resume);
+      reply.header("Content-Disposition", `attachment; filename="${filenameBase}.docx"`);
+      return reply
+        .type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        .send(buffer);
     },
   );
 }

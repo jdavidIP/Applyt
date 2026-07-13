@@ -1,7 +1,20 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { formatDate } from '../labels';
-import type { Application, ResumeVersion, TailorEstimate } from '../types';
+import { triggerBlobDownload } from '../download';
+import type { Application, ResumeVersion, TailorEstimate, ResumeDownloadFormat } from '../types';
+
+// Strips characters that aren't filesystem-safe on Windows/macOS/Linux,
+// collapsing runs of them to a single hyphen.
+function sanitizeFilenamePart(value: string): string {
+  return value.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'resume';
+}
+
+const DOWNLOAD_LABELS: Record<ResumeDownloadFormat, string> = {
+  pdf: 'Download PDF',
+  docx: 'Download Word',
+  txt: 'Download .txt',
+};
 
 interface Props {
   application: Application;
@@ -54,6 +67,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [estimate, setEstimate] = useState<TailorEstimate | null>(null);
+  const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(null);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
 
@@ -117,6 +131,24 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     }
   }
 
+  // Renders the stored version on demand into the requested format (server
+  // side, resumeRender.ts) — every past or present version is downloadable
+  // in any format, not just whatever was chosen when it was generated.
+  async function handleDownload(format: ResumeDownloadFormat) {
+    if (!selected) return;
+    setDownloading(format);
+    setError(null);
+    try {
+      const blob = await api.downloadResumeVersion(application.id, selected.id, format);
+      const filename = `${sanitizeFilenamePart(application.company)}-${sanitizeFilenamePart(application.title)}-resume.${format}`;
+      triggerBlobDownload(blob, filename);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to download the ${format.toUpperCase()}.`);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   async function handleCopy() {
     if (!selected?.tailored_output) return;
     try {
@@ -164,9 +196,21 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               <span className="stat-label">
                 {selected.ai_provider} · {formatDate(selected.created_at)}
               </span>
-              <button className="btn btn-secondary btn-sm" onClick={() => void handleCopy()}>
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              <div className="tailor-output-actions">
+                <button className="btn btn-secondary btn-sm" onClick={() => void handleCopy()}>
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                {(['pdf', 'docx', 'txt'] as const).map((format) => (
+                  <button
+                    key={format}
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => void handleDownload(format)}
+                    disabled={downloading !== null}
+                  >
+                    {downloading === format ? 'Downloading…' : DOWNLOAD_LABELS[format]}
+                  </button>
+                ))}
+              </div>
             </div>
             <p className="tailor-usage">{usageSummary(selected)}</p>
             <textarea readOnly value={selected.tailored_output ?? ''} rows={16} />

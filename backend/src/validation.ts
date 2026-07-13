@@ -1,4 +1,4 @@
-import { PLATFORMS, APPLY_METHODS, STATUSES, AI_PROVIDERS } from './types.js';
+import { PLATFORMS, APPLY_METHODS, STATUSES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS } from './types.js';
 
 // Fastify JSON schemas for request bodies/queries. Enum sets are sourced from
 // types.ts so they cannot drift from the domain unions (and, in turn, the SQLite schema).
@@ -104,5 +104,24 @@ export const bulkDeleteQuerySchema = {
   additionalProperties: false,
   properties: {
     status: { type: 'string', enum: [...STATUSES] },
+  },
+} as const;
+
+export const resumeVersionParamSchema = {
+  type: 'object',
+  required: ['id', 'versionId'],
+  additionalProperties: false,
+  properties: {
+    id: { type: 'integer', minimum: 1 },
+    versionId: { type: 'integer', minimum: 1 },
+  },
+} as const;
+
+export const resumeDownloadQuerySchema = {
+  type: 'object',
+  required: ['format'],
+  additionalProperties: false,
+  properties: {
+    format: { type: 'string', enum: [...RESUME_DOWNLOAD_FORMATS] },
   },
 } as const;

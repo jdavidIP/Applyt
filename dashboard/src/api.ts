@@ -10,12 +10,29 @@ import type {
   TailorEstimate,
   ModelsResponse,
   KnownPricingResponse,
+  ExtractResumeTextResponse,
+  ResumeDownloadFormat,
   AiProvider,
 } from './types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
 // to the backend (see vite.config.ts). Override with VITE_API_BASE if needed.
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
+
+// Shared by request() below and the file-upload/download functions, which
+// can't go through request() itself (it always forces a JSON Content-Type
+// and calls .json() on the response — wrong for multipart bodies and binary
+// downloads respectively).
+async function errorDetail(res: Response): Promise<string> {
+  let detail = res.statusText;
+  try {
+    const body = (await res.json()) as { error?: string; message?: string };
+    detail = body.error ?? body.message ?? detail;
+  } catch {
+    // non-JSON error body; keep statusText
+  }
+  return detail;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Only declare a JSON content-type when we're actually sending a body.
@@ -27,14 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = (await res.json()) as { error?: string; message?: string };
-      detail = body.error ?? body.message ?? detail;
-    } catch {
-      // non-JSON error body; keep statusText
-    }
-    throw new Error(`${res.status}: ${detail}`);
+    throw new Error(`${res.status}: ${await errorDetail(res)}`);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -106,4 +116,30 @@ export const api = {
 
   listResumeVersions: (id: number): Promise<ResumeVersion[]> =>
     request<ResumeVersion[]>(`/applications/${id}/resume-versions`),
+
+  // Bypasses request(): the browser must set its own multipart boundary in
+  // Content-Type, so we must NOT set one ourselves.
+  extractResumeText: async (file: File): Promise<ExtractResumeTextResponse> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE}/settings/base-resume/extract`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${await errorDetail(res)}`);
+    return (await res.json()) as ExtractResumeTextResponse;
+  },
+
+  // Bypasses request(): the response is a binary file, not JSON.
+  downloadResumeVersion: async (
+    applicationId: number,
+    versionId: number,
+    format: ResumeDownloadFormat,
+  ): Promise<Blob> => {
+    const res = await fetch(
+      `${API_BASE}/applications/${applicationId}/resume-versions/${versionId}/download?format=${format}`,
+    );
+    if (!res.ok) throw new Error(`${res.status}: ${await errorDetail(res)}`);
+    return res.blob();
+  },
 };

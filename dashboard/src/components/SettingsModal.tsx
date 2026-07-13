@@ -195,6 +195,30 @@ export function SettingsModal({ onClose }: Props) {
     );
   }
 
+  // Upload a PDF/DOCX resume and extract plain text from it, so users don't
+  // have to paste their resume by hand. Deliberately does NOT save on its
+  // own: extraction is imperfect (column layouts, tables), so the result
+  // just replaces the textarea below for the user to review/edit before
+  // clicking the existing Save button.
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+
+  async function handleResumeFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file again later
+    if (!file) return;
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      const { text } = await api.extractResumeText(file);
+      setBaseResume(text);
+    } catch (err) {
+      setExtractError(err instanceof Error ? err.message : 'Could not read this file.');
+    } finally {
+      setExtracting(false);
+    }
+  }
+
   function updateRow(index: number, patch: Partial<PriceRow>) {
     setPricingRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
@@ -305,12 +329,30 @@ export function SettingsModal({ onClose }: Props) {
             </label>
             <label className="span-2">
               Base resume (plain text)
+              <div className="resume-upload-row">
+                <input
+                  type="file"
+                  accept=".pdf,.docx"
+                  onChange={(e) => void handleResumeFile(e)}
+                  disabled={extracting}
+                />
+                {extracting && (
+                  <span className="settings-hint" style={{ margin: 0 }}>
+                    Extracting text…
+                  </span>
+                )}
+              </div>
+              {extractError && <p className="form-error">{extractError}</p>}
               <textarea
                 value={baseResume}
                 onChange={(e) => setBaseResume(e.target.value)}
                 rows={10}
                 placeholder="Paste your resume as plain text…"
               />
+              <span className="settings-hint" style={{ margin: 0 }}>
+                Uploading a PDF or Word (.docx) file replaces the text above — review and edit
+                before saving.
+              </span>
             </label>
 
             <div className="span-2 pricing-section">

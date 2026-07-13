@@ -328,6 +328,12 @@ textarea:focus {
   color: var(--muted);
   font-size: 13px;
 }
+.resume-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
 .form-success {
   color: #15803d;
   margin: 12px 0 0;
@@ -354,7 +360,14 @@ textarea:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 6px;
+}
+.tailor-output-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .tailor-output textarea {
   width: 100%;

@@ -194,3 +194,16 @@ export interface KnownPricingResponse {
   asOf: string;
   pricing: ModelPricing;
 }
+
+// POST /settings/base-resume/extract response — plain text extracted from an
+// uploaded PDF/DOCX resume, for the client to review/edit before saving via
+// the existing PUT /settings baseResume field. Never written to settings itself.
+export interface ExtractResumeTextResponse {
+  text: string;
+}
+
+// GET /applications/:id/resume-versions/:versionId/download?format= — renders
+// a stored resume_versions.tailored_output on demand rather than storing
+// multiple binary formats per version (see resumeRender.ts).
+export const RESUME_DOWNLOAD_FORMATS = ['pdf', 'docx', 'txt'] as const;
+export type ResumeDownloadFormat = (typeof RESUME_DOWNLOAD_FORMATS)[number];

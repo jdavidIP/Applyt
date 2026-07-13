@@ -134,3 +134,14 @@ export interface KnownPricingResponse {
   asOf: string;
   pricing: ModelPricing;
 }
+
+// POST /settings/base-resume/extract response — plain text extracted from an
+// uploaded PDF/DOCX resume, for review/editing before saving via the normal
+// baseResume field. Never saved automatically.
+export interface ExtractResumeTextResponse {
+  text: string;
+}
+
+// GET /applications/:id/resume-versions/:versionId/download?format=
+export const RESUME_DOWNLOAD_FORMATS = ['pdf', 'docx', 'txt'] as const;
+export type ResumeDownloadFormat = (typeof RESUME_DOWNLOAD_FORMATS)[number];
