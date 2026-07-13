@@ -181,6 +181,18 @@ export interface TailorEstimate {
   model: string;
 }
 
+// The four sections every tailor run produces, parsed out of the raw
+// tailored_output blob (see tailoredResume.ts). The AI is prompted to emit a
+// strict, marker-delimited layout so this is reliably parseable; matchRating
+// is null when the model's rating couldn't be parsed or when the row predates
+// the structured format.
+export interface TailoredSections {
+  resume: string;
+  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
+  matchJustification: string;
+  suggestions: string;
+}
+
 // GET /settings/models response — model ids available from the user's own
 // provider account, for populating the Settings model field.
 export interface ModelsResponse {

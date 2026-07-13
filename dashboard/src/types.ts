@@ -122,6 +122,15 @@ export interface TailorEstimate {
   model: string;
 }
 
+// The four sections a tailor run produces, parsed from the raw tailored_output
+// blob (see tailoredResume.ts). Mirrors backend/src/types.ts.
+export interface TailoredSections {
+  resume: string;
+  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
+  matchJustification: string;
+  suggestions: string;
+}
+
 // GET /settings/models response — model ids available from the user's own
 // provider account, for populating the Settings model field.
 export interface ModelsResponse {

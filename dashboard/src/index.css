@@ -376,6 +376,48 @@ textarea:focus {
   line-height: 1.5;
   resize: vertical;
 }
+.tailor-output .stat-label {
+  display: block;
+  margin: 12px 0 4px;
+}
+.tailor-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tailor-section-body {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.tailor-match,
+.tailor-suggestions {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-top: 10px;
+  background: #fafbfc;
+}
+.tailor-match .stat-label,
+.tailor-suggestions .stat-label {
+  margin: 0 0 4px;
+}
+.match-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.match-stars-glyphs {
+  color: #f59e0b;
+  letter-spacing: 1px;
+  font-size: 15px;
+}
+.match-stars-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
 .version-list {
   margin-top: 14px;
 }

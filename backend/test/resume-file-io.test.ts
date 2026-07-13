@@ -9,7 +9,7 @@ import { Document as DocxDocument, Packer, Paragraph } from 'docx';
 import { buildApp } from '../src/app.ts';
 import { createDb } from '../src/db.ts';
 import { createSettingsStore } from '../src/settings.ts';
-import { splitSuggestions } from '../src/resumeRender.ts';
+import { parseTailoredResume } from '../src/tailoredResume.ts';
 import type { Application, ResumeVersion } from '../src/types.ts';
 
 const db = createDb(':memory:');
@@ -97,24 +97,54 @@ async function createApp(overrides: Record<string, unknown> = {}): Promise<Appli
   return res.json() as Application;
 }
 
-// ---- splitSuggestions (pure function) ----
+// ---- parseTailoredResume (pure function) ----
 // PDF/DOCX output is a real zip/binary container, so asserting "the rendered
-// bytes don't contain the literal Suggestions text" isn't reliable (both
-// formats compress their content streams). Testing the split logic directly
-// is the meaningful check; the HTTP tests below verify the pipeline runs and
-// produces the right container format.
-test('splitSuggestions separates the resume from a trailing Suggestions section', () => {
-  const { resume, suggestions } = splitSuggestions(
-    'John Doe\nSenior Engineer\n\nSuggestions:\nMention your Kubernetes experience.',
-  );
-  assert.equal(resume, 'John Doe\nSenior Engineer');
-  assert.equal(suggestions, 'Suggestions:\nMention your Kubernetes experience.');
+// bytes don't contain the suggestions text" isn't reliable (both formats
+// compress their content streams). Testing the parser directly is the
+// meaningful check; the HTTP tests below verify the pipeline end to end.
+const STRUCTURED_OUTPUT = [
+  '===TAILORED_RESUME===',
+  'John Doe',
+  'Senior Engineer',
+  '- Led a team of 5 engineers',
+  '===MATCH_RATING===',
+  '4',
+  '===MATCH_JUSTIFICATION===',
+  '- Meets the core backend requirements',
+  '- Missing the required Kubernetes experience',
+  '===SUGGESTIONS===',
+  '- Emphasize your leadership experience in the interview',
+].join('\n');
+
+test('parseTailoredResume splits the four marker-delimited sections', () => {
+  const parsed = parseTailoredResume(STRUCTURED_OUTPUT);
+  assert.equal(parsed.resume, 'John Doe\nSenior Engineer\n- Led a team of 5 engineers');
+  assert.equal(parsed.matchRating, 4);
+  assert.match(parsed.matchJustification, /core backend requirements/);
+  assert.match(parsed.suggestions, /leadership experience/);
 });
 
-test('splitSuggestions returns the full text with null suggestions when there is no heading', () => {
-  const { resume, suggestions } = splitSuggestions('Just a resume, no suggestions section.');
-  assert.equal(resume, 'Just a resume, no suggestions section.');
-  assert.equal(suggestions, null);
+test('parseTailoredResume tolerates a rating written as "3/5"', () => {
+  const parsed = parseTailoredResume(
+    '===TAILORED_RESUME===\nR\n===MATCH_RATING===\n3/5\n===MATCH_JUSTIFICATION===\nx\n===SUGGESTIONS===\ny',
+  );
+  assert.equal(parsed.matchRating, 3);
+});
+
+test('parseTailoredResume falls back for legacy pre-structured output', () => {
+  const parsed = parseTailoredResume(
+    'John Doe\nSenior Engineer\n\nSuggestions:\nMention your Kubernetes experience.',
+  );
+  assert.equal(parsed.resume, 'John Doe\nSenior Engineer');
+  assert.equal(parsed.matchRating, null);
+  assert.match(parsed.suggestions, /Kubernetes/);
+});
+
+test('parseTailoredResume treats markerless, headingless text as all-resume', () => {
+  const parsed = parseTailoredResume('Just a resume, nothing else.');
+  assert.equal(parsed.resume, 'Just a resume, nothing else.');
+  assert.equal(parsed.matchRating, null);
+  assert.equal(parsed.suggestions, '');
 });
 
 // ---- POST /settings/base-resume/extract ----
@@ -219,12 +249,7 @@ async function createTailoredVersion(): Promise<{ applicationId: number; version
   });
   const created = await createApp({ job_description: 'Senior React role.' });
   stubFetch(200, {
-    content: [
-      {
-        type: 'text',
-        text: 'Jane Smith\nSenior Engineer\n- Led a team of 5 engineers\n\nSuggestions:\nMention leadership.',
-      },
-    ],
+    content: [{ type: 'text', text: STRUCTURED_OUTPUT.replace('John Doe', 'Jane Smith') }],
     usage: { input_tokens: 100, output_tokens: 50 },
   });
   const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
@@ -233,7 +258,7 @@ async function createTailoredVersion(): Promise<{ applicationId: number; version
   return { applicationId: created.id, versionId: version.id };
 }
 
-test('GET .../download?format=txt returns the full tailored_output including suggestions', async () => {
+test('GET .../download?format=txt returns only the tailored resume, not the meta sections', async () => {
   const { applicationId, versionId } = await createTailoredVersion();
   const res = await app.inject({
     method: 'GET',
@@ -241,8 +266,11 @@ test('GET .../download?format=txt returns the full tailored_output including sug
   });
   assert.equal(res.statusCode, 200);
   assert.match(res.headers['content-type'] as string, /text\/plain/);
-  assert.match(res.body, /Suggestions:/);
   assert.match(res.body, /Jane Smith/);
+  // The match rating, justification, and suggestions must not leak into the
+  // downloadable resume file.
+  assert.doesNotMatch(res.body, /===/);
+  assert.doesNotMatch(res.body, /Missing the required Kubernetes/);
 });
 
 test('GET .../download?format=pdf returns a valid PDF containing only the resume portion', async () => {

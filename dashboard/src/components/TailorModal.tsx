@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { formatDate } from '../labels';
 import { triggerBlobDownload } from '../download';
+import { parseTailoredResume } from '../tailoredResume';
 import type { Application, ResumeVersion, TailorEstimate, ResumeDownloadFormat } from '../types';
 
 // Strips characters that aren't filesystem-safe on Windows/macOS/Linux,
@@ -15,6 +16,20 @@ const DOWNLOAD_LABELS: Record<ResumeDownloadFormat, string> = {
   docx: 'Download Word',
   txt: 'Download .txt',
 };
+
+// Renders the 0–5 match rating as filled/empty stars plus an "(N/5)" label.
+function MatchStars({ rating }: { rating: number }) {
+  const filled = Math.max(0, Math.min(5, rating));
+  return (
+    <span className="match-stars" aria-label={`Match rating ${filled} out of 5`}>
+      <span className="match-stars-glyphs" aria-hidden>
+        {'★'.repeat(filled)}
+        {'☆'.repeat(5 - filled)}
+      </span>
+      <span className="match-stars-label">{filled}/5</span>
+    </span>
+  );
+}
 
 interface Props {
   application: Application;
@@ -70,6 +85,13 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(null);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
+
+  // Parse the raw stored output into its four sections for display. Handles
+  // both the current marker-delimited format and older pre-structured rows.
+  const sections = useMemo(
+    () => (selected ? parseTailoredResume(selected.tailored_output ?? '') : null),
+    [selected],
+  );
 
   useEffect(() => {
     let active = true;
@@ -150,9 +172,11 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   }
 
   async function handleCopy() {
-    if (!selected?.tailored_output) return;
+    // Copy just the tailored resume (what's shown in the textarea), not the
+    // match/suggestions meta — that's the text the user actually pastes.
+    if (!sections?.resume) return;
     try {
-      await navigator.clipboard.writeText(selected.tailored_output);
+      await navigator.clipboard.writeText(sections.resume);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -190,7 +214,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
 
         {error && <p className="form-error">{error}</p>}
 
-        {selected && (
+        {selected && sections && (
           <div className="tailor-output">
             <div className="tailor-output-header">
               <span className="stat-label">
@@ -213,7 +237,28 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               </div>
             </div>
             <p className="tailor-usage">{usageSummary(selected)}</p>
-            <textarea readOnly value={selected.tailored_output ?? ''} rows={16} />
+
+            {(sections.matchRating !== null || sections.matchJustification) && (
+              <div className="tailor-match">
+                <div className="tailor-section-head">
+                  <span className="stat-label">Match</span>
+                  {sections.matchRating !== null && <MatchStars rating={sections.matchRating} />}
+                </div>
+                {sections.matchJustification && (
+                  <div className="tailor-section-body">{sections.matchJustification}</div>
+                )}
+              </div>
+            )}
+
+            <span className="stat-label">Tailored resume</span>
+            <textarea readOnly value={sections.resume} rows={16} />
+
+            {sections.suggestions && (
+              <div className="tailor-suggestions">
+                <span className="stat-label">Interview &amp; cover-letter suggestions</span>
+                <div className="tailor-section-body">{sections.suggestions}</div>
+              </div>
+            )}
           </div>
         )}
 

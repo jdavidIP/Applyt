@@ -23,7 +23,19 @@ export interface TailorResult {
   usage: TokenUsage;
 }
 
-const MAX_TOKENS = 4096;
+// Headroom for a full tailored resume plus three shorter sections in one
+// non-streaming completion. Kept comfortably above a typical resume's length
+// so the final SUGGESTIONS section is never truncated (which would break the
+// strict layout parseTailoredResume expects).
+const MAX_TOKENS = 8192;
+
+// The exact section markers the model must emit, in this order. Kept in sync
+// with the parser in tailoredResume.ts — changing one without the other breaks
+// parsing of every new tailor run.
+const RESUME_MARKER = '===TAILORED_RESUME===';
+const RATING_MARKER = '===MATCH_RATING===';
+const JUSTIFICATION_MARKER = '===MATCH_JUSTIFICATION===';
+const SUGGESTIONS_MARKER = '===SUGGESTIONS===';
 
 // Endpoints are overridable via env so a user behind a proxy/gateway (or a test)
 // can redirect them; defaults are the real provider APIs.
@@ -44,17 +56,50 @@ function openaiModelsUrl(): string {
     : 'https://api.openai.com/v1/models';
 }
 
+// A strict, marker-delimited layout so the dashboard and download endpoints can
+// parse the four sections out reliably (parseTailoredResume, tailoredResume.ts)
+// rather than guessing at loose headings.
 function systemPrompt(): string {
   return [
-    'You are an expert resume writer and career coach.',
-    'Given a candidate\'s base resume and a specific job description, produce a tailored',
-    'version of the resume that emphasizes the most relevant experience and skills for',
-    'that role, using language that echoes the job description where the candidate',
-    'genuinely matches it. Never invent experience, employers, dates, or credentials the',
-    'candidate does not already have — only reorganize, reword, and re-emphasize what is',
-    'present. After the tailored resume, add a short "Suggestions" section with concrete,',
-    'honest advice on gaps to address or points to highlight in a cover letter or interview.',
-  ].join(' ');
+    'You are an expert resume writer, career coach, and technical recruiter.',
+    'You will receive a candidate\'s base resume and a specific job description.',
+    '',
+    'Return your response as EXACTLY these four sections, each introduced by its',
+    'marker on its own line, in this order and with these exact markers:',
+    '',
+    RESUME_MARKER,
+    RATING_MARKER,
+    JUSTIFICATION_MARKER,
+    SUGGESTIONS_MARKER,
+    '',
+    'Output nothing before the first marker and nothing after the last section.',
+    'Do not add any other markers, headings, code fences, or commentary outside',
+    'the four sections. Use "- " for every bullet point.',
+    '',
+    `${RESUME_MARKER}`,
+    'A tailored, submission-ready version of the candidate\'s resume in plain text.',
+    'Emphasize the experience and skills most relevant to this role and echo the job',
+    'description\'s language where the candidate genuinely matches it. NEVER invent',
+    'experience, employers, dates, titles, or credentials the candidate does not',
+    'already have — only reorganize, reword, and re-emphasize what is present.',
+    '',
+    `${RATING_MARKER}`,
+    'A single integer from 0 to 5 on its own line, rating how well the candidate\'s',
+    'resume matches this job: 5 = an excellent, near-complete match; 0 = the posting',
+    'is essentially out of scope for this resume. Output only the digit — no stars,',
+    'no "/5", no words.',
+    '',
+    `${JUSTIFICATION_MARKER}`,
+    'Three to six concise "- " bullet points explaining the rating: which key',
+    'requirements the candidate clearly meets, which are only partially met, and',
+    'which are missing or unproven. Be honest and specific, referencing concrete',
+    'requirements from the job description.',
+    '',
+    `${SUGGESTIONS_MARKER}`,
+    'Concrete, honest guidance as "- " bullet points: specific things to emphasize',
+    'or bring up in an interview, gaps to proactively address, and points worth',
+    'adding to a cover letter.',
+  ].join('\n');
 }
 
 function userPrompt(p: TailorParams): string {
@@ -67,7 +112,7 @@ function userPrompt(p: TailorParams): string {
     'BASE RESUME:',
     p.baseResume,
     '',
-    'Return the tailored resume in plain text, followed by a "Suggestions:" section.',
+    'Produce the four marked sections exactly as specified.',
   ].join('\n');
 }
 

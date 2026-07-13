@@ -1,20 +1,10 @@
 import PDFDocument from 'pdfkit';
 import { Document, Packer, Paragraph } from 'docx';
 
-// ai.ts's tailoring prompt always appends a "Suggestions:" section after the
-// resume text. A PDF/DOCX download is meant to look like a submittable resume,
-// so only the portion before that heading is rendered; a .txt download keeps
-// everything (matching the dashboard's existing "Copy" behavior).
-const SUGGESTIONS_HEADING = /^suggestions:?\s*$/im;
-
-export function splitSuggestions(text: string): { resume: string; suggestions: string | null } {
-  const match = SUGGESTIONS_HEADING.exec(text);
-  if (!match) return { resume: text.trim(), suggestions: null };
-  return {
-    resume: text.slice(0, match.index).trim(),
-    suggestions: text.slice(match.index).trim(),
-  };
-}
+// Turns a tailored resume's plain text (already extracted from the full model
+// output by parseTailoredResume — see tailoredResume.ts) into a downloadable
+// PDF or DOCX. Only the resume section reaches here; the match rating and
+// suggestions are shown in the dashboard, not written into the resume file.
 
 interface ParsedLine {
   text: string;

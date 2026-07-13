@@ -115,9 +115,17 @@ fix the JSON, not the content script.
    isn't listed.
 2. On any application with a job description, click **Tailor for this job**. The
    dashboard shows an estimated cost first — extrapolated from your own tailoring
-   history for that model once you have some, or a rough estimate otherwise — then
-   the generated resume, real token usage, and actual cost once it completes.
-3. Previous tailored versions for an application are kept and viewable.
+   history for that model once you have some, or a rough estimate otherwise. Each
+   run returns three things: the tailored resume, a **match rating** (0–5 stars,
+   with a short justification of which requirements you meet, partially meet, or
+   are missing), and **interview & cover-letter suggestions**. Real token usage
+   and actual cost are shown once it completes.
+3. Your base resume can be pasted as plain text or uploaded as a PDF/Word (.docx)
+   file — an upload extracts the text for you to review and edit before saving.
+4. Download any tailored resume as **PDF, Word (.docx), or plain text**; the match
+   rating and suggestions stay in the dashboard and are never written into the
+   downloadable resume file.
+5. Previous tailored versions for an application are kept and viewable.
 
 API keys can also be supplied via `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment
 variables, which take precedence over the stored settings file — useful if you'd
