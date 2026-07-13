@@ -168,7 +168,7 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   });
   const created = await createApp({ job_description: 'Senior React role.' });
 
-  // Default model claude-sonnet-5 is priced at 3/15 per million (input/output).
+  // Default model claude-sonnet-5 is priced at 2/10 per million (input/output).
   stubFetch(200, {
     content: [{ type: 'text', text: 'TAILORED RESUME OUTPUT' }],
     usage: { input_tokens: 1000, output_tokens: 500 },
@@ -183,8 +183,8 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(version.model, 'claude-sonnet-5');
   assert.equal(version.input_tokens, 1000);
   assert.equal(version.output_tokens, 500);
-  // (1000/1e6)*3 + (500/1e6)*15 = 0.003 + 0.0075 = 0.0105
-  assert.ok(Math.abs((version.cost ?? 0) - 0.0105) < 1e-9);
+  // (1000/1e6)*2 + (500/1e6)*10 = 0.002 + 0.005 = 0.007
+  assert.ok(Math.abs((version.cost ?? 0) - 0.007) < 1e-9);
 
   // The application now points at its newest tailored version.
   const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
@@ -262,8 +262,8 @@ test('GET /:id/tailor-estimate falls back to a static per-token estimate with no
   const estimate = res.json() as { estimatedCost: number; source: string };
   assert.equal(estimate.source, 'static');
   // 800 chars / 4 = 200 tokens in, 200 tokens out (same-length heuristic).
-  // (200/1e6)*3 + (200/1e6)*15 = 0.0006 + 0.003 = 0.0036
-  assert.ok(Math.abs(estimate.estimatedCost - 0.0036) < 1e-9);
+  // (200/1e6)*2 + (200/1e6)*10 = 0.0004 + 0.002 = 0.0024
+  assert.ok(Math.abs(estimate.estimatedCost - 0.0024) < 1e-9);
 });
 
 test('GET /:id/tailor-estimate extrapolates from historical cost-per-char once a run exists', async () => {
@@ -344,7 +344,7 @@ test('POST /:id/tailor records tokens but a null cost for an unpriced model', as
 test('GET /settings exposes a default model pricing table', async () => {
   const s = (await app.inject({ method: 'GET', url: '/settings' })).json() as PublicSettings;
   assert.ok(s.modelPricing);
-  assert.deepEqual(s.modelPricing['claude-sonnet-5'], { inputPerMillion: 3, outputPerMillion: 15 });
+  assert.deepEqual(s.modelPricing['claude-sonnet-5'], { inputPerMillion: 2, outputPerMillion: 10 });
 });
 
 test('PUT /settings replaces the model pricing table and round-trips it', async () => {
@@ -364,6 +364,14 @@ test('PUT /settings rejects a malformed pricing entry', async () => {
     payload: { modelPricing: { bad: { inputPerMillion: -1, outputPerMillion: 2 } } },
   });
   assert.equal(res.statusCode, 400); // negative price violates minimum: 0
+});
+
+test('GET /settings/known-pricing returns a dated snapshot with sonnet-5 priced', async () => {
+  const res = await app.inject({ method: 'GET', url: '/settings/known-pricing' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { asOf: string; pricing: Record<string, { inputPerMillion: number; outputPerMillion: number }> };
+  assert.match(body.asOf, /^\d{4}-\d{2}-\d{2}$/);
+  assert.deepEqual(body.pricing['claude-sonnet-5'], { inputPerMillion: 2, outputPerMillion: 10 });
 });
 
 test('GET /settings/models 400s without a valid provider', async () => {

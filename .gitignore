@@ -18,3 +18,7 @@ backend/data/settings.json
 *.log
 .DS_Store
 Thumbs.db
+
+# Claude Code local state (per-machine, not project config)
+.claude/
+.agents/

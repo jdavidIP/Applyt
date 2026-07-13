@@ -215,4 +215,18 @@ describe('api Phase 4 tailoring functions', () => {
     const headers = new Headers((init as RequestInit).headers);
     expect(headers.has('Content-Type')).toBe(false);
   });
+
+  test('getKnownPricing GETs /settings/known-pricing with no body', async () => {
+    const payload = { asOf: '2026-07-13', pricing: { 'claude-sonnet-5': { inputPerMillion: 2, outputPerMillion: 10 } } };
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify(payload), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.getKnownPricing();
+    expect(result).toEqual(payload);
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/settings/known-pricing');
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.has('Content-Type')).toBe(false);
+  });
 });

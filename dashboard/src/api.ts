@@ -9,6 +9,7 @@ import type {
   ResumeVersion,
   TailorEstimate,
   ModelsResponse,
+  KnownPricingResponse,
   AiProvider,
 } from './types';
 
@@ -87,6 +88,9 @@ export const api = {
 
   getModels: (provider: AiProvider): Promise<ModelsResponse> =>
     request<ModelsResponse>(`/settings/models?provider=${provider}`),
+
+  getKnownPricing: (): Promise<KnownPricingResponse> =>
+    request<KnownPricingResponse>('/settings/known-pricing'),
 
   saveSettings: (input: SettingsInput): Promise<PublicSettings> =>
     request<PublicSettings>('/settings', {

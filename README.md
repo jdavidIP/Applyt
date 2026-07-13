@@ -163,6 +163,7 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `GET`    | `/settings`                              | Client-safe AI settings (never returns raw API keys)         |
 | `PUT`    | `/settings`                              | Update AI provider, model, keys, base resume, or pricing     |
 | `GET`    | `/settings/models?provider=`             | Live model list from the provider, using your stored/env key |
+| `GET`    | `/settings/known-pricing`                | Curated, dated snapshot of published provider prices          |
 | `GET`    | `/health`                                | Liveness check                                                |
 
 The `POST /applications` body shape is intentionally compatible with what the browser

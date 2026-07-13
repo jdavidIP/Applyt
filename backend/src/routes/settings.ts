@@ -4,6 +4,7 @@ import { AI_PROVIDERS } from '../types.js';
 import { updateSettingsSchema } from '../validation.js';
 import type { SettingsStore } from '../settings.js';
 import { listModels } from '../ai.js';
+import { KNOWN_MODEL_PRICING, KNOWN_PRICING_AS_OF } from '../knownPricing.js';
 
 interface RoutesOptions extends FastifyPluginOptions {
   settings: SettingsStore;
@@ -55,4 +56,12 @@ export default async function settingsRoutes(
       }
     },
   );
+
+  // GET /settings/known-pricing — a curated, dated snapshot of published
+  // provider prices (no live network call; see knownPricing.ts), used by the
+  // dashboard's "sync known prices" action.
+  fastify.get('/settings/known-pricing', async () => ({
+    asOf: KNOWN_PRICING_AS_OF,
+    pricing: KNOWN_MODEL_PRICING,
+  }));
 }

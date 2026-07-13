@@ -399,6 +399,13 @@ textarea:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pricing-header-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .pricing-table {
   display: flex;

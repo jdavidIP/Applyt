@@ -127,3 +127,10 @@ export interface TailorEstimate {
 export interface ModelsResponse {
   models: string[];
 }
+
+// GET /settings/known-pricing response — a curated, dated snapshot of
+// published provider prices, used to "sync known prices" in Settings.
+export interface KnownPricingResponse {
+  asOf: string;
+  pricing: ModelPricing;
+}
