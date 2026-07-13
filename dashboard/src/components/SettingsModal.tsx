@@ -198,9 +198,6 @@ export function SettingsModal({ onClose }: Props) {
   function updateRow(index: number, patch: Partial<PriceRow>) {
     setPricingRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
-  function addRow() {
-    setPricingRows((rows) => [...rows, { model: '', input: '', output: '' }]);
-  }
   function removeRow(index: number) {
     setPricingRows((rows) => rows.filter((_, i) => i !== index));
   }
@@ -336,15 +333,13 @@ export function SettingsModal({ onClose }: Props) {
                   >
                     Sync known prices
                   </button>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={addRow}>
-                    + Add model
-                  </button>
                 </div>
               </div>
               <p className="settings-hint">
-                Used to estimate each tailor's cost. A model not listed here shows no cost.{' '}
-                "Sync models" fetches your current model list from every provider with a key
-                configured and adds any missing ones.{' '}
+                Used to estimate each tailor's cost. A model not listed here shows no cost. Models
+                are only added via "Sync models", which fetches your current model list from every
+                provider with a key configured — there's no manual add or rename, so this table can
+                never drift from what your account actually offers.{' '}
                 {knownPricingAsOf
                   ? `"Sync known prices" applies a curated snapshot last verified ${knownPricingAsOf} — always double-check against your provider's current pricing.`
                   : "Verify against your provider's current pricing."}
@@ -359,11 +354,7 @@ export function SettingsModal({ onClose }: Props) {
                 </div>
                 {pricingRows.map((row, i) => (
                   <div className="pricing-row" key={i}>
-                    <input
-                      value={row.model}
-                      onChange={(e) => updateRow(i, { model: e.target.value })}
-                      placeholder="model id"
-                    />
+                    <span className="pricing-model-name">{row.model}</span>
                     <input
                       type="number"
                       min={0}

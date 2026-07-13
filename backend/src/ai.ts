@@ -157,13 +157,48 @@ async function providerError(name: string, res: Response): Promise<Error> {
 // resolved: replaces the free-text-only model field with real options fetched
 // from the user's own provider using their own key, while still allowing a
 // custom value — a model not yet on the list, or a preview/dated snapshot id).
+//
+// Both providers' /models endpoints return every model id on the account —
+// including ones this app has no use for. tailorResume() only ever makes a
+// single plain-text chat/completion call (ai.ts), so anything that isn't a
+// general-purpose text-generation chat model is noise here: image generation
+// (dall-e, gpt-image, sora), audio/speech (whisper, tts, realtime,
+// transcribe), embeddings, moderation, the computer-use tool model, and
+// coding-specialized variants (Codex) are excluded — none of them improve a
+// resume-tailoring call, and Codex-tuned models trade away general writing
+// quality for code tasks this app never performs. Legacy non-chat completion
+// models (davinci/babbage/curie, turbo-instruct) are excluded too since the
+// chat/completions endpoint we call can't use them.
+const OPENAI_IRRELEVANT =
+  /image|dall-?e|sora|whisper|\btts\b|audio|realtime|transcribe|speech|embedding|moderation|computer-use|codex|turbo-instruct|davinci|babbage|curie/i;
+
+// Providers commonly list both a moving "alias" id (e.g. gpt-4.1-mini,
+// claude-sonnet-4-5) that keeps receiving updates, and one or more dated
+// snapshot ids pinned to a specific release (e.g. gpt-4.1-mini-2025-04-14,
+// claude-sonnet-4-5-20250929). Pinning only matters if you need reproducible
+// behavior across a fleet of calls; for a single-user tool doing one tailor
+// run at a time, the alias is strictly more useful since it never goes stale.
+// Drop a dated snapshot whenever its undated alias is also present in the
+// same list — leave genuinely distinct dated-only ids (no alias returned)
+// alone rather than guess.
+const DATE_SUFFIX = /-(\d{4}-\d{2}-\d{2}|\d{8}|\d{4})$/;
+function dedupeDatedSnapshots(ids: string[]): string[] {
+  const set = new Set(ids);
+  return ids.filter((id) => {
+    const match = id.match(DATE_SUFFIX);
+    if (!match) return true;
+    const alias = id.slice(0, match.index);
+    return !set.has(alias);
+  });
+}
+
 async function listAnthropicModels(apiKey: string): Promise<string[]> {
   const res = await fetch(anthropicModelsUrl(), {
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
   });
   if (!res.ok) throw await providerError('Anthropic', res);
   const data = (await res.json()) as { data?: { id: string }[] };
-  return (data.data ?? []).map((m) => m.id);
+  return dedupeDatedSnapshots((data.data ?? []).map((m) => m.id));
 }
 
 async function listOpenaiModels(apiKey: string): Promise<string[]> {
@@ -172,13 +207,12 @@ async function listOpenaiModels(apiKey: string): Promise<string[]> {
   });
   if (!res.ok) throw await providerError('OpenAI', res);
   const data = (await res.json()) as { data?: { id: string }[] };
-  // OpenAI's /v1/models lists every model on the account (chat, embeddings,
-  // audio, image, moderation…). Only chat-completion-capable ids are useful
-  // here, so keep those matching the families this app can actually call.
-  return (data.data ?? [])
+  const textChatModels = (data.data ?? [])
     .map((m) => m.id)
     .filter((id) => /^(gpt-|chatgpt-|o[0-9])/i.test(id))
+    .filter((id) => !OPENAI_IRRELEVANT.test(id))
     .sort();
+  return dedupeDatedSnapshots(textChatModels);
 }
 
 export async function listModels(provider: AiProvider, apiKey: string): Promise<string[]> {

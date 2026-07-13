@@ -41,5 +41,7 @@ export const KNOWN_MODEL_PRICING: ModelPricing = {
   'gpt-5.4-nano': { inputPerMillion: 0.2, outputPerMillion: 1.25 },
   'gpt-5.4-pro': { inputPerMillion: 30, outputPerMillion: 180 },
   'chat-latest': { inputPerMillion: 5, outputPerMillion: 30 },
-  'gpt-5.3-codex': { inputPerMillion: 1.75, outputPerMillion: 14 },
+  // gpt-5.3-codex intentionally omitted: it's a coding-specialized variant,
+  // irrelevant to this app's plain-text resume tailoring (see ai.ts's
+  // OPENAI_IRRELEVANT filter, which excludes it from the live model list too).
 };

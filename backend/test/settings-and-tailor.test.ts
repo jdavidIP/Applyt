@@ -426,6 +426,63 @@ test('GET /settings/models returns the OpenAI model list, filtered to chat-capab
   assert.deepEqual([...models].sort(), ['gpt-4o', 'gpt-4o-mini', 'o1']);
 });
 
+test('GET /settings/models excludes image/audio/codex OpenAI variants irrelevant to text tailoring', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { openaiApiKey: 'sk-openai-secret' },
+  });
+  stubFetch(200, {
+    data: [
+      { id: 'gpt-4o' },
+      { id: 'gpt-image-1' },
+      { id: 'gpt-4o-realtime-preview' },
+      { id: 'gpt-4o-mini-tts' },
+      { id: 'gpt-4o-transcribe' },
+      { id: 'gpt-5.3-codex' },
+      { id: 'gpt-3.5-turbo-instruct' },
+    ],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=openai' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, ['gpt-4o']);
+});
+
+test('GET /settings/models drops a dated OpenAI snapshot when its undated alias is also listed', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { openaiApiKey: 'sk-openai-secret' },
+  });
+  stubFetch(200, {
+    data: [{ id: 'gpt-4.1-mini' }, { id: 'gpt-4.1-mini-2025-04-14' }],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=openai' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, ['gpt-4.1-mini']);
+});
+
+test('GET /settings/models drops a dated Anthropic snapshot when its undated alias is also listed', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { anthropicApiKey: 'sk-ant-secret' },
+  });
+  stubFetch(200, {
+    data: [
+      { id: 'claude-sonnet-4-5' },
+      { id: 'claude-sonnet-4-5-20250929' },
+      { id: 'claude-opus-4-8' },
+    ],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=anthropic' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, [
+    'claude-sonnet-4-5',
+    'claude-opus-4-8',
+  ]);
+});
+
 test('GET /settings/models 502s and surfaces the provider error on an upstream failure', async () => {
   await app.inject({
     method: 'PUT',

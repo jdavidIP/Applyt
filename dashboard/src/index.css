@@ -427,6 +427,12 @@ textarea:focus {
 .pricing-row-head span {
   padding: 0 2px;
 }
+.pricing-model-name {
+  padding: 7px 9px;
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
