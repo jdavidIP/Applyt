@@ -201,4 +201,18 @@ describe('api Phase 4 tailoring functions', () => {
     const headers = new Headers((init as RequestInit).headers);
     expect(headers.has('Content-Type')).toBe(false);
   });
+
+  test('getModels GETs /settings/models with a provider query param and no body', async () => {
+    const payload = { models: ['claude-sonnet-5', 'claude-opus-4-8'] };
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify(payload), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.getModels('anthropic');
+    expect(result).toEqual(payload);
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/settings/models?provider=anthropic');
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.has('Content-Type')).toBe(false);
+  });
 });

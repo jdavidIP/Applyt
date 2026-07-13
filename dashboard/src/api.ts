@@ -8,6 +8,8 @@ import type {
   SettingsInput,
   ResumeVersion,
   TailorEstimate,
+  ModelsResponse,
+  AiProvider,
 } from './types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
@@ -82,6 +84,9 @@ export const api = {
     }),
 
   getSettings: (): Promise<PublicSettings> => request<PublicSettings>('/settings'),
+
+  getModels: (provider: AiProvider): Promise<ModelsResponse> =>
+    request<ModelsResponse>(`/settings/models?provider=${provider}`),
 
   saveSettings: (input: SettingsInput): Promise<PublicSettings> =>
     request<PublicSettings>('/settings', {

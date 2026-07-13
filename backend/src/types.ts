@@ -180,3 +180,9 @@ export interface TailorEstimate {
   sampleSize?: number;
   model: string;
 }
+
+// GET /settings/models response — model ids available from the user's own
+// provider account, for populating the Settings model field.
+export interface ModelsResponse {
+  models: string[];
+}

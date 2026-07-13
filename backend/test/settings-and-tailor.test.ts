@@ -366,6 +366,70 @@ test('PUT /settings rejects a malformed pricing entry', async () => {
   assert.equal(res.statusCode, 400); // negative price violates minimum: 0
 });
 
+test('GET /settings/models 400s without a valid provider', async () => {
+  const res = await app.inject({ method: 'GET', url: '/settings/models' });
+  assert.equal(res.statusCode, 400);
+});
+
+test('GET /settings/models 400s when no API key is configured for that provider', async () => {
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=anthropic' });
+  assert.equal(res.statusCode, 400);
+  assert.match((res.json() as { error: string }).error, /no api key/i);
+});
+
+test('GET /settings/models returns the Anthropic model list, filtered to ids only', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { anthropicApiKey: 'sk-ant-secret' },
+  });
+  stubFetch(200, {
+    data: [
+      { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' },
+      { id: 'claude-opus-4-8', display_name: 'Claude Opus 4.8' },
+    ],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=anthropic' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, [
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+  ]);
+});
+
+test('GET /settings/models returns the OpenAI model list, filtered to chat-capable ids', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { openaiApiKey: 'sk-openai-secret' },
+  });
+  stubFetch(200, {
+    data: [
+      { id: 'gpt-4o' },
+      { id: 'gpt-4o-mini' },
+      { id: 'text-embedding-3-small' },
+      { id: 'whisper-1' },
+      { id: 'o1' },
+    ],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=openai' });
+  assert.equal(res.statusCode, 200);
+  const models = (res.json() as { models: string[] }).models;
+  assert.deepEqual([...models].sort(), ['gpt-4o', 'gpt-4o-mini', 'o1']);
+});
+
+test('GET /settings/models 502s and surfaces the provider error on an upstream failure', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { anthropicApiKey: 'bad-key' },
+  });
+  stubFetch(401, { error: { message: 'invalid x-api-key' } });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=anthropic' });
+  assert.equal(res.statusCode, 502);
+  assert.match((res.json() as { error: string }).error, /invalid x-api-key/);
+});
+
 test('POST /:id/tailor 502s and surfaces the provider error on an upstream failure', async () => {
   await app.inject({
     method: 'PUT',

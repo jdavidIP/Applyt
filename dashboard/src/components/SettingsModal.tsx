@@ -58,6 +58,8 @@ export function SettingsModal({ onClose }: Props) {
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
   const [pricingRows, setPricingRows] = useState<PriceRow[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -81,6 +83,33 @@ export function SettingsModal({ onClose }: Props) {
       active = false;
     };
   }, []);
+
+  // Live model list for the current provider (CLAUDE.md §8 open question). Only
+  // meaningful once a key is configured for that provider; failures (no key yet,
+  // provider unreachable) are silent since the model field still accepts free
+  // text via the datalist fallback below.
+  const hasKeyForProvider = provider === 'anthropic' ? hasAnthropicKey : hasOpenaiKey;
+  useEffect(() => {
+    if (loading || !hasKeyForProvider) {
+      setAvailableModels([]);
+      return;
+    }
+    let active = true;
+    setModelsLoading(true);
+    void (async () => {
+      try {
+        const { models } = await api.getModels(provider);
+        if (active) setAvailableModels(models);
+      } catch {
+        if (active) setAvailableModels([]);
+      } finally {
+        if (active) setModelsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [provider, hasKeyForProvider, loading]);
 
   function updateRow(index: number, patch: Partial<PriceRow>) {
     setPricingRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -151,7 +180,22 @@ export function SettingsModal({ onClose }: Props) {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="e.g. claude-sonnet-5 or gpt-4o"
+                list="model-options"
               />
+              <datalist id="model-options">
+                {availableModels.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              {hasKeyForProvider && (
+                <span className="settings-hint" style={{ margin: 0 }}>
+                  {modelsLoading
+                    ? 'Loading your account’s models…'
+                    : availableModels.length > 0
+                      ? `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} available from your account — type to filter, or enter a custom id.`
+                      : 'Could not load your account’s model list — enter a model id manually.'}
+                </span>
+              )}
             </label>
             <label>
               Anthropic API key

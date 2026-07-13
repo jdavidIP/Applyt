@@ -33,6 +33,16 @@ function anthropicUrl(): string {
 function openaiUrl(): string {
   return process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1/chat/completions';
 }
+function anthropicModelsUrl(): string {
+  return process.env.ANTHROPIC_BASE_URL?.trim()
+    ? anthropicUrl().replace(/\/messages$/, '/models')
+    : 'https://api.anthropic.com/v1/models';
+}
+function openaiModelsUrl(): string {
+  return process.env.OPENAI_BASE_URL?.trim()
+    ? openaiUrl().replace(/\/chat\/completions$/, '/models')
+    : 'https://api.openai.com/v1/models';
+}
 
 function systemPrompt(): string {
   return [
@@ -141,6 +151,38 @@ async function providerError(name: string, res: Response): Promise<Error> {
     // Non-JSON error body; keep the status line.
   }
   return new Error(`${name} request failed: ${detail}`);
+}
+
+// Live model list for the Settings dropdown (CLAUDE.md §8 open question,
+// resolved: replaces the free-text-only model field with real options fetched
+// from the user's own provider using their own key, while still allowing a
+// custom value — a model not yet on the list, or a preview/dated snapshot id).
+async function listAnthropicModels(apiKey: string): Promise<string[]> {
+  const res = await fetch(anthropicModelsUrl(), {
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+  });
+  if (!res.ok) throw await providerError('Anthropic', res);
+  const data = (await res.json()) as { data?: { id: string }[] };
+  return (data.data ?? []).map((m) => m.id);
+}
+
+async function listOpenaiModels(apiKey: string): Promise<string[]> {
+  const res = await fetch(openaiModelsUrl(), {
+    headers: { authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) throw await providerError('OpenAI', res);
+  const data = (await res.json()) as { data?: { id: string }[] };
+  // OpenAI's /v1/models lists every model on the account (chat, embeddings,
+  // audio, image, moderation…). Only chat-completion-capable ids are useful
+  // here, so keep those matching the families this app can actually call.
+  return (data.data ?? [])
+    .map((m) => m.id)
+    .filter((id) => /^(gpt-|chatgpt-|o[0-9])/i.test(id))
+    .sort();
+}
+
+export async function listModels(provider: AiProvider, apiKey: string): Promise<string[]> {
+  return provider === 'openai' ? listOpenaiModels(apiKey) : listAnthropicModels(apiKey);
 }
 
 export async function tailorResume(params: TailorParams): Promise<TailorResult> {

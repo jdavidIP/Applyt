@@ -109,7 +109,10 @@ fix the JSON, not the content script.
 1. Open **Settings** in the dashboard, choose a provider (Anthropic or OpenAI), and
    paste in your own API key and base resume. Keys are stored locally in
    `backend/data/settings.json` (gitignored) and never leave your machine except in
-   the outbound call to your chosen provider.
+   the outbound call to your chosen provider. Once a key is saved, the model field
+   offers a live list of models from your own account (fetched from the provider
+   using that key) — you can still type a custom model id if you prefer one that
+   isn't listed.
 2. On any application with a job description, click **Tailor for this job**. The
    dashboard shows an estimated cost first — extrapolated from your own tailoring
    history for that model once you have some, or a rough estimate otherwise — then
@@ -159,6 +162,7 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `GET`    | `/applications/:id/resume-versions`      | List tailored resume versions for this application           |
 | `GET`    | `/settings`                              | Client-safe AI settings (never returns raw API keys)         |
 | `PUT`    | `/settings`                              | Update AI provider, model, keys, base resume, or pricing     |
+| `GET`    | `/settings/models?provider=`             | Live model list from the provider, using your stored/env key |
 | `GET`    | `/health`                                | Liveness check                                                |
 
 The `POST /applications` body shape is intentionally compatible with what the browser
