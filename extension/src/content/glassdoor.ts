@@ -1,6 +1,6 @@
 import selectors from '../shared/selectors/glassdoor.json';
 import { createLogger } from '../shared/debug';
-import type { DetectedApplication, RuntimeMessage } from '../shared/types';
+import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
 
 // Runs on glassdoor.com job pages AND smartapply.indeed.com (see
 // manifest.config.ts) — Glassdoor is Indeed-owned, and per CLAUDE.md §6 its
@@ -448,11 +448,36 @@ function attachManualMarkListener(): void {
   });
 }
 
+// The popup asks the active tab for the job currently on screen so it can be
+// tailored before the user applies (Phase 4). Resolve from the live DOM only —
+// this script also runs on indeed.com (smartapply bridge), where staying silent
+// unless the Glassdoor selectors match keeps it from cross-responding on an
+// Indeed page.
+function attachCurrentJobProvider(): void {
+  chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+    if (message.type !== 'GET_CURRENT_JOB') return false;
+    const listingId = currentListingId();
+    const { title, company } = resolveTitleAndCompany();
+    if (!title || !company) return false;
+    const job: CurrentJobInfo = {
+      platform: 'glassdoor',
+      company,
+      title,
+      job_url: exactJobUrl(listingId),
+      platform_job_id: listingId,
+      job_description: currentJobDescription(),
+    };
+    sendResponse(job);
+    return false;
+  });
+}
+
 function init(): void {
   log('content script loaded', location.href);
   captureJobPageMeta();
   attachApplyClickDelegation();
   attachManualMarkListener();
+  attachCurrentJobProvider();
   observeForConfirmation();
 
   // Glassdoor's job page is client-side-routed — job views change without a

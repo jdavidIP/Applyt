@@ -495,6 +495,63 @@ test('GET /settings/models 502s and surfaces the provider error on an upstream f
   assert.match((res.json() as { error: string }).error, /invalid x-api-key/);
 });
 
+// This is the flow the extension popup relies on (tailor before applying):
+// a pending_confirmation row is created for the job, a resume is tailored and
+// linked to it, and a later confirmed apply for the SAME posting promotes the
+// row to 'applied' via the upsert + mergeStatus — without unlinking the resume.
+test('popup flow: tailor a pending application, then a confirmed apply promotes it to applied', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  // The popup creates the job as an external_redirect / pending_confirmation row.
+  const created = await createApp({
+    platform: 'indeed',
+    platform_job_id: 'jk-popup-1',
+    apply_method: 'external_redirect',
+    status: 'pending_confirmation',
+    job_description: 'Senior React role.',
+  });
+  assert.equal(created.status, 'pending_confirmation');
+
+  stubFetch(200, {
+    content: [{ type: 'text', text: '===TAILORED_RESUME===\nTAILORED' }],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(tailorRes.statusCode, 201);
+  const version = tailorRes.json() as ResumeVersion;
+
+  // The application is linked to the tailored version but is still pending.
+  const pending = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
+  assert.equal(pending.status, 'pending_confirmation');
+  assert.equal(pending.resume_version_id, version.id);
+
+  // The user completes the Easy Apply — the content script reports it applied.
+  const confirm = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: {
+      platform: 'indeed',
+      company: 'Acme Corp',
+      title: 'Software Engineer',
+      platform_job_id: 'jk-popup-1',
+      apply_method: 'in_platform',
+      status: 'applied',
+    },
+  });
+  // Upsert on platform+platform_job_id → same row, promoted, no duplicate.
+  assert.equal(confirm.statusCode, 200);
+  const promoted = confirm.json() as Application;
+  assert.equal(promoted.id, created.id);
+  assert.equal(promoted.status, 'applied');
+  assert.equal(promoted.resume_version_id, version.id); // resume still linked
+
+  const all = (await app.inject({ method: 'GET', url: '/applications' })).json() as Application[];
+  assert.equal(all.length, 1); // promoted in place, not duplicated
+});
+
 test('POST /:id/tailor omits the match-rating and suggestions markers when opted out', async () => {
   await app.inject({
     method: 'PUT',

@@ -1,6 +1,6 @@
 import selectors from '../shared/selectors/indeed.json';
 import { createLogger } from '../shared/debug';
-import type { DetectedApplication, RuntimeMessage } from '../shared/types';
+import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
 
 // Runs on *.indeed.com and smartapply.indeed.com (see manifest.config.ts).
 //
@@ -363,12 +363,39 @@ function attachManualMarkListener(): void {
   });
 }
 
+// The popup asks the active tab for the job currently on screen so it can be
+// tailored before the user applies (Phase 4). Resolve from the live DOM only —
+// staying silent when title/company don't resolve is deliberate: on indeed.com
+// this script shares the frame with glassdoor.ts, so a cache-based fallback
+// could cross-respond with a stale Glassdoor job. The popup targets the top
+// frame, whose live DOM is the job page, so live resolution is reliable there.
+function attachCurrentJobProvider(): void {
+  chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+    if (message.type !== 'GET_CURRENT_JOB') return false;
+    const jk = currentJobKey();
+    const title = textOf(firstMatch(selectors.jobTitleSelectors));
+    const company = textOf(firstMatch(selectors.companySelectors));
+    if (!title || !company) return false; // not a resolvable job here — let another frame answer
+    const job: CurrentJobInfo = {
+      platform: 'indeed',
+      company,
+      title,
+      job_url: canonicalJobUrl(jk, location.href),
+      platform_job_id: jk,
+      job_description: currentJobDescription(),
+    };
+    sendResponse(job);
+    return false;
+  });
+}
+
 function init(): void {
   log('content script loaded in frame', location.href);
   captureJobPageMeta();
   attachInPlatformApplyListener();
   attachExternalApplyDelegation();
   attachManualMarkListener();
+  attachCurrentJobProvider();
   observeForConfirmation();
 
   // Indeed's job page and search-results detail pane re-render via

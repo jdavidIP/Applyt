@@ -97,6 +97,16 @@ What it does today, per platform:
 All three also auto-capture the job description at detection time, so tailoring
 against an auto-captured application doesn't require pasting the JD in by hand.
 
+**Tailor before you apply, from the popup.** For Easy Apply jobs the posting
+isn't tracked until *after* you submit — too late to tailor against it. So the
+extension popup reads the job you're currently viewing and lets you **tailor a
+resume and see the match rating + suggestions right there**, without opening the
+dashboard. Doing so saves the job as a `pending_confirmation` application with
+the tailored resume attached; if you then complete an Easy Apply it's promoted
+to `applied` automatically, and if you don't it waits in the dashboard for you to
+confirm or discard. (Requires a base resume and API key configured in the
+dashboard first.)
+
 A manual fallback always exists: right-click a job page → **"Mark this job as
 applied"**, or add/edit an entry directly in the dashboard.
 

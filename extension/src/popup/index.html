@@ -4,42 +4,210 @@
     <meta charset="UTF-8" />
     <title>Applyt</title>
     <style>
+      :root {
+        --green: #2e7d32;
+        --green-dark: #256628;
+        --border: #e2e5ea;
+        --muted: #667085;
+        --text: #1a1a1a;
+        --amber: #f59e0b;
+      }
+      * {
+        box-sizing: border-box;
+      }
       body {
-        font-family: system-ui, sans-serif;
-        width: 260px;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        width: 440px;
+        max-height: 560px;
+        overflow-y: auto;
         margin: 0;
         padding: 16px;
-        color: #1a1a1a;
+        color: var(--text);
+        font-size: 13px;
+      }
+      .header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 10px;
       }
       h1 {
         font-size: 15px;
-        margin: 0 0 8px;
+        margin: 0;
       }
-      p {
-        font-size: 13px;
-        line-height: 1.4;
-        color: #444;
-      }
-      a.button {
-        display: block;
-        text-align: center;
-        margin-top: 12px;
-        padding: 8px 0;
-        background: #2e7d32;
-        color: #fff;
+      a.link {
+        font-size: 12px;
+        color: var(--green);
         text-decoration: none;
+      }
+      a.link:hover {
+        text-decoration: underline;
+      }
+      .status {
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+      .status.error {
+        color: #b42318;
+      }
+      .job {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+      }
+      .job-title {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .job-company {
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .controls label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      .hint {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      button.btn-primary {
+        margin-top: 2px;
+        padding: 9px 0;
+        background: var(--green);
+        color: #fff;
+        border: none;
         border-radius: 6px;
         font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      button.btn-primary:hover:not(:disabled) {
+        background: var(--green-dark);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      button.btn-sm {
+        padding: 3px 10px;
+        font-size: 12px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .section {
+        margin-bottom: 12px;
+      }
+      .section-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .section-body {
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+      .tailor-match,
+      .tailor-suggestions {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #fafbfc;
+      }
+      .stars {
+        color: var(--amber);
+        letter-spacing: 1px;
+        font-weight: 400;
+      }
+      .stars .stars-count {
+        color: var(--muted);
+        font-size: 11px;
+        margin-left: 6px;
+        letter-spacing: normal;
+      }
+      textarea#resume {
+        width: 100%;
+        font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px;
+        resize: vertical;
+      }
+      .usage {
+        margin: 0;
+        font-size: 11px;
+        color: var(--muted);
       }
     </style>
   </head>
   <body>
-    <h1>Applyt</h1>
-    <p>
-      Watching Indeed for applications you submit. Detected applications are sent to your local
-      dashboard automatically. Use right-click → "Mark this job as applied" if one is missed.
-    </p>
-    <a class="button" id="open-dashboard" href="#">Open dashboard</a>
+    <div class="header">
+      <h1>Applyt</h1>
+      <a class="link" id="open-dashboard" href="#">Dashboard →</a>
+    </div>
+
+    <div class="status" id="status">Checking this page…</div>
+
+    <div class="job" id="job" hidden>
+      <div class="job-title" id="job-title"></div>
+      <div class="job-company" id="job-company"></div>
+    </div>
+
+    <div class="controls" id="controls" hidden>
+      <label><input type="checkbox" id="opt-rating" checked /> Match rating &amp; justification</label>
+      <label
+        ><input type="checkbox" id="opt-suggestions" checked /> Interview &amp; cover-letter
+        suggestions</label
+      >
+      <button class="btn-primary" id="tailor-btn">Tailor for this job</button>
+      <p class="hint" id="controls-hint" hidden></p>
+    </div>
+
+    <div id="results" hidden>
+      <div class="section tailor-match" id="match" hidden>
+        <div class="section-label">
+          <span>Match <span class="stars" id="match-stars"></span></span>
+        </div>
+        <div class="section-body" id="match-justification"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">
+          <span>Tailored resume</span>
+          <button class="btn-sm" id="copy-btn">Copy</button>
+        </div>
+        <textarea id="resume" readonly rows="12"></textarea>
+      </div>
+
+      <div class="section tailor-suggestions" id="suggestions" hidden>
+        <div class="section-label"><span>Interview &amp; cover-letter suggestions</span></div>
+        <div class="section-body" id="suggestions-body"></div>
+      </div>
+
+      <p class="usage" id="usage"></p>
+    </div>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

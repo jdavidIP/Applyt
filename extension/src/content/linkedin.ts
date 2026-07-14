@@ -1,6 +1,6 @@
 import selectors from '../shared/selectors/linkedin.json';
 import { createLogger } from '../shared/debug';
-import type { DetectedApplication, RuntimeMessage } from '../shared/types';
+import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
 
 // Runs on linkedin.com/jobs/* (see manifest.config.ts).
 //
@@ -390,11 +390,35 @@ function attachManualMarkListener(): void {
   });
 }
 
+// The popup asks the active tab for the job currently on screen so it can be
+// tailored before the user applies (Phase 4). Resolve from the live DOM only;
+// stay silent if title/company don't resolve so the popup can fall back to a
+// clear "open a job posting" message rather than a stale answer.
+function attachCurrentJobProvider(): void {
+  chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+    if (message.type !== 'GET_CURRENT_JOB') return false;
+    const jobId = currentJobId();
+    const { title, company } = resolveTitleAndCompany();
+    if (!title || !company) return false;
+    const job: CurrentJobInfo = {
+      platform: 'linkedin',
+      company,
+      title,
+      job_url: canonicalJobUrl(jobId, location.href),
+      platform_job_id: jobId,
+      job_description: currentJobDescription(),
+    };
+    sendResponse(job);
+    return false;
+  });
+}
+
 function init(): void {
   log('content script loaded', location.href);
   captureJobPageMeta();
   attachApplyClickDelegation();
   attachManualMarkListener();
+  attachCurrentJobProvider();
   observeForConfirmation();
 
   // LinkedIn is a heavy client-side-routed SPA — job views change without a
