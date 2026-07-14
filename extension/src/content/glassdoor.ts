@@ -373,7 +373,16 @@ function observeForConfirmation(): void {
           return;
         }
 
-        const listingId = currentListingId() ?? applyState.listingId;
+        // Prefer the id frozen at Easy-Apply-click time over a fresh DOM/URL
+        // scrape: the split-pane can auto-advance to a different job (e.g. a
+        // recommendation refresh) between the click and the confirmation toast
+        // actually being observed, so a live re-read here can silently resolve
+        // to the WRONG posting even though applyInProgress is present. Live
+        // observed bug: job_url (built from the frozen applyState) stayed
+        // correct while a live-resolved listingId picked up a different job,
+        // producing a same-URL-different-id duplicate row. Only fall back to
+        // a live scrape if the click handler itself never captured an id.
+        const listingId = applyState.listingId ?? currentListingId();
 
         // No client-side dedupe cache: the backend upserts on
         // platform+platform_job_id, so a repeat report merges into the

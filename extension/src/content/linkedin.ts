@@ -318,7 +318,14 @@ function observeForConfirmation(): void {
           return;
         }
 
-        const jobId = currentJobId() ?? applyState.jobId;
+        // Prefer the id frozen at Easy-Apply-click time over a fresh URL
+        // re-read: the split-pane can advance to a different job between the
+        // click and the confirmation actually being observed, so a live
+        // re-read here could silently resolve to the WRONG posting even
+        // though applyInProgress is present (same class of bug hit live on
+        // Glassdoor — see glassdoor.ts). Only fall back to a live scrape if
+        // the click handler itself never captured an id.
+        const jobId = applyState.jobId ?? currentJobId();
 
         // No client-side dedupe cache: the backend upserts on
         // platform+platform_job_id, so a repeat report merges into the

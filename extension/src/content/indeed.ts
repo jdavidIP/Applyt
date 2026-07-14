@@ -305,7 +305,14 @@ function observeForConfirmation(): void {
           return;
         }
 
-        const resolvedJk = jk ?? applyState.jk ?? cachedByJk?.jk;
+        // Prefer the jk frozen at Apply-click time over the live one: the
+        // confirmation frame's page can advance to a different job between
+        // the click and the confirmation actually being observed, so a live
+        // re-read here could silently resolve to the WRONG posting even
+        // though applyInProgress is present (same class of bug hit live on
+        // Glassdoor — see glassdoor.ts). Only fall back to a live/cached jk
+        // if the click handler itself never captured one.
+        const resolvedJk = applyState.jk ?? jk ?? cachedByJk?.jk;
         const jobDescription = applyState.job_description ?? cachedByJk?.job_description;
 
         // No client-side dedupe cache: the backend upserts on
