@@ -97,6 +97,16 @@ What it does today, per platform:
 All three also auto-capture the job description at detection time, so tailoring
 against an auto-captured application doesn't require pasting the JD in by hand.
 
+**Tailor before you apply, from the popup.** For Easy Apply jobs the posting
+isn't tracked until *after* you submit — too late to tailor against it. So the
+extension popup reads the job you're currently viewing and lets you **tailor a
+resume and see the match rating + suggestions right there**, without opening the
+dashboard. Doing so saves the job as a `pending_confirmation` application with
+the tailored resume attached; if you then complete an Easy Apply it's promoted
+to `applied` automatically, and if you don't it waits in the dashboard for you to
+confirm or discard. (Requires a base resume and API key configured in the
+dashboard first.)
+
 A manual fallback always exists: right-click a job page → **"Mark this job as
 applied"**, or add/edit an entry directly in the dashboard.
 
@@ -113,11 +123,22 @@ fix the JSON, not the content script.
    offers a live list of models from your own account (fetched from the provider
    using that key) — you can still type a custom model id if you prefer one that
    isn't listed.
-2. On any application with a job description, click **Tailor for this job**. The
-   dashboard shows an estimated cost first — extrapolated from your own tailoring
-   history for that model once you have some, or a rough estimate otherwise — then
-   the generated resume, real token usage, and actual cost once it completes.
-3. Previous tailored versions for an application are kept and viewable.
+2. On any application with a job description, click **Tailor for this job**. Two
+   checkboxes let you choose whether to also receive a **match rating** (0–5
+   stars, with a short justification of which requirements you meet, partially
+   meet, or are missing) and **interview & cover-letter suggestions** — any
+   combination of both, one, or neither; the tailored resume itself is always
+   produced. Sections you opt out of are never requested from the model, so
+   you're not billed for output you don't want. The dashboard shows an
+   estimated cost first — extrapolated from your own tailoring history for
+   that model once you have some, or a rough estimate otherwise. Real token
+   usage and actual cost are shown once it completes.
+3. Your base resume can be pasted as plain text or uploaded as a PDF/Word (.docx)
+   file — an upload extracts the text for you to review and edit before saving.
+4. Download any tailored resume as **PDF, Word (.docx), or plain text**; the match
+   rating and suggestions stay in the dashboard and are never written into the
+   downloadable resume file.
+5. Previous tailored versions for an application are kept and viewable.
 
 API keys can also be supplied via `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment
 variables, which take precedence over the stored settings file — useful if you'd
@@ -163,6 +184,7 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `GET`    | `/settings`                              | Client-safe AI settings (never returns raw API keys)         |
 | `PUT`    | `/settings`                              | Update AI provider, model, keys, base resume, or pricing     |
 | `GET`    | `/settings/models?provider=`             | Live model list from the provider, using your stored/env key |
+| `GET`    | `/settings/known-pricing`                | Curated, dated snapshot of published provider prices          |
 | `GET`    | `/health`                                | Liveness check                                                |
 
 The `POST /applications` body shape is intentionally compatible with what the browser

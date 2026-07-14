@@ -168,7 +168,7 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   });
   const created = await createApp({ job_description: 'Senior React role.' });
 
-  // Default model claude-sonnet-5 is priced at 3/15 per million (input/output).
+  // Default model claude-sonnet-5 is priced at 2/10 per million (input/output).
   stubFetch(200, {
     content: [{ type: 'text', text: 'TAILORED RESUME OUTPUT' }],
     usage: { input_tokens: 1000, output_tokens: 500 },
@@ -183,8 +183,8 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(version.model, 'claude-sonnet-5');
   assert.equal(version.input_tokens, 1000);
   assert.equal(version.output_tokens, 500);
-  // (1000/1e6)*3 + (500/1e6)*15 = 0.003 + 0.0075 = 0.0105
-  assert.ok(Math.abs((version.cost ?? 0) - 0.0105) < 1e-9);
+  // (1000/1e6)*2 + (500/1e6)*10 = 0.002 + 0.005 = 0.007
+  assert.ok(Math.abs((version.cost ?? 0) - 0.007) < 1e-9);
 
   // The application now points at its newest tailored version.
   const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
@@ -262,8 +262,8 @@ test('GET /:id/tailor-estimate falls back to a static per-token estimate with no
   const estimate = res.json() as { estimatedCost: number; source: string };
   assert.equal(estimate.source, 'static');
   // 800 chars / 4 = 200 tokens in, 200 tokens out (same-length heuristic).
-  // (200/1e6)*3 + (200/1e6)*15 = 0.0006 + 0.003 = 0.0036
-  assert.ok(Math.abs(estimate.estimatedCost - 0.0036) < 1e-9);
+  // (200/1e6)*2 + (200/1e6)*10 = 0.0004 + 0.002 = 0.0024
+  assert.ok(Math.abs(estimate.estimatedCost - 0.0024) < 1e-9);
 });
 
 test('GET /:id/tailor-estimate extrapolates from historical cost-per-char once a run exists', async () => {
@@ -344,7 +344,7 @@ test('POST /:id/tailor records tokens but a null cost for an unpriced model', as
 test('GET /settings exposes a default model pricing table', async () => {
   const s = (await app.inject({ method: 'GET', url: '/settings' })).json() as PublicSettings;
   assert.ok(s.modelPricing);
-  assert.deepEqual(s.modelPricing['claude-sonnet-5'], { inputPerMillion: 3, outputPerMillion: 15 });
+  assert.deepEqual(s.modelPricing['claude-sonnet-5'], { inputPerMillion: 2, outputPerMillion: 10 });
 });
 
 test('PUT /settings replaces the model pricing table and round-trips it', async () => {
@@ -364,6 +364,14 @@ test('PUT /settings rejects a malformed pricing entry', async () => {
     payload: { modelPricing: { bad: { inputPerMillion: -1, outputPerMillion: 2 } } },
   });
   assert.equal(res.statusCode, 400); // negative price violates minimum: 0
+});
+
+test('GET /settings/known-pricing returns a dated snapshot with sonnet-5 priced', async () => {
+  const res = await app.inject({ method: 'GET', url: '/settings/known-pricing' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { asOf: string; pricing: Record<string, { inputPerMillion: number; outputPerMillion: number }> };
+  assert.match(body.asOf, /^\d{4}-\d{2}-\d{2}$/);
+  assert.deepEqual(body.pricing['claude-sonnet-5'], { inputPerMillion: 2, outputPerMillion: 10 });
 });
 
 test('GET /settings/models 400s without a valid provider', async () => {
@@ -418,6 +426,63 @@ test('GET /settings/models returns the OpenAI model list, filtered to chat-capab
   assert.deepEqual([...models].sort(), ['gpt-4o', 'gpt-4o-mini', 'o1']);
 });
 
+test('GET /settings/models excludes image/audio/codex OpenAI variants irrelevant to text tailoring', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { openaiApiKey: 'sk-openai-secret' },
+  });
+  stubFetch(200, {
+    data: [
+      { id: 'gpt-4o' },
+      { id: 'gpt-image-1' },
+      { id: 'gpt-4o-realtime-preview' },
+      { id: 'gpt-4o-mini-tts' },
+      { id: 'gpt-4o-transcribe' },
+      { id: 'gpt-5.3-codex' },
+      { id: 'gpt-3.5-turbo-instruct' },
+    ],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=openai' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, ['gpt-4o']);
+});
+
+test('GET /settings/models drops a dated OpenAI snapshot when its undated alias is also listed', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { openaiApiKey: 'sk-openai-secret' },
+  });
+  stubFetch(200, {
+    data: [{ id: 'gpt-4.1-mini' }, { id: 'gpt-4.1-mini-2025-04-14' }],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=openai' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, ['gpt-4.1-mini']);
+});
+
+test('GET /settings/models drops a dated Anthropic snapshot when its undated alias is also listed', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { anthropicApiKey: 'sk-ant-secret' },
+  });
+  stubFetch(200, {
+    data: [
+      { id: 'claude-sonnet-4-5' },
+      { id: 'claude-sonnet-4-5-20250929' },
+      { id: 'claude-opus-4-8' },
+    ],
+  });
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=anthropic' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, [
+    'claude-sonnet-4-5',
+    'claude-opus-4-8',
+  ]);
+});
+
 test('GET /settings/models 502s and surfaces the provider error on an upstream failure', async () => {
   await app.inject({
     method: 'PUT',
@@ -428,6 +493,128 @@ test('GET /settings/models 502s and surfaces the provider error on an upstream f
   const res = await app.inject({ method: 'GET', url: '/settings/models?provider=anthropic' });
   assert.equal(res.statusCode, 502);
   assert.match((res.json() as { error: string }).error, /invalid x-api-key/);
+});
+
+// This is the flow the extension popup relies on (tailor before applying):
+// a pending_confirmation row is created for the job, a resume is tailored and
+// linked to it, and a later confirmed apply for the SAME posting promotes the
+// row to 'applied' via the upsert + mergeStatus — without unlinking the resume.
+test('popup flow: tailor a pending application, then a confirmed apply promotes it to applied', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  // The popup creates the job as an external_redirect / pending_confirmation row.
+  const created = await createApp({
+    platform: 'indeed',
+    platform_job_id: 'jk-popup-1',
+    apply_method: 'external_redirect',
+    status: 'pending_confirmation',
+    job_description: 'Senior React role.',
+  });
+  assert.equal(created.status, 'pending_confirmation');
+
+  stubFetch(200, {
+    content: [{ type: 'text', text: '===TAILORED_RESUME===\nTAILORED' }],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(tailorRes.statusCode, 201);
+  const version = tailorRes.json() as ResumeVersion;
+
+  // The application is linked to the tailored version but is still pending.
+  const pending = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
+  assert.equal(pending.status, 'pending_confirmation');
+  assert.equal(pending.resume_version_id, version.id);
+
+  // The user completes the Easy Apply — the content script reports it applied.
+  const confirm = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: {
+      platform: 'indeed',
+      company: 'Acme Corp',
+      title: 'Software Engineer',
+      platform_job_id: 'jk-popup-1',
+      apply_method: 'in_platform',
+      status: 'applied',
+    },
+  });
+  // Upsert on platform+platform_job_id → same row, promoted, no duplicate.
+  assert.equal(confirm.statusCode, 200);
+  const promoted = confirm.json() as Application;
+  assert.equal(promoted.id, created.id);
+  assert.equal(promoted.status, 'applied');
+  assert.equal(promoted.resume_version_id, version.id); // resume still linked
+
+  const all = (await app.inject({ method: 'GET', url: '/applications' })).json() as Application[];
+  assert.equal(all.length, 1); // promoted in place, not duplicated
+});
+
+test('POST /:id/tailor omits the match-rating and suggestions markers when opted out', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedSystemPrompt = '';
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string) as { system: string };
+    capturedSystemPrompt = body.system;
+    return new Response(
+      JSON.stringify({
+        content: [{ type: 'text', text: '===TAILORED_RESUME===\nRESUME ONLY' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: false },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.match(capturedSystemPrompt, /===TAILORED_RESUME===/);
+  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_RATING===/);
+  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_JUSTIFICATION===/);
+  assert.doesNotMatch(capturedSystemPrompt, /===SUGGESTIONS===/);
+});
+
+test('POST /:id/tailor includes only the suggestions marker when only suggestions are requested', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedSystemPrompt = '';
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string) as { system: string };
+    capturedSystemPrompt = body.system;
+    return new Response(
+      JSON.stringify({
+        content: [{ type: 'text', text: '===TAILORED_RESUME===\nRESUME\n===SUGGESTIONS===\n- tip' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: true },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.match(capturedSystemPrompt, /===TAILORED_RESUME===/);
+  assert.match(capturedSystemPrompt, /===SUGGESTIONS===/);
+  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_RATING===/);
 });
 
 test('POST /:id/tailor 502s and surfaces the provider error on an upstream failure', async () => {

@@ -1,6 +1,6 @@
 import selectors from '../shared/selectors/glassdoor.json';
 import { createLogger } from '../shared/debug';
-import type { DetectedApplication, RuntimeMessage } from '../shared/types';
+import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
 
 // Runs on glassdoor.com job pages AND smartapply.indeed.com (see
 // manifest.config.ts) — Glassdoor is Indeed-owned, and per CLAUDE.md §6 its
@@ -373,7 +373,16 @@ function observeForConfirmation(): void {
           return;
         }
 
-        const listingId = currentListingId() ?? applyState.listingId;
+        // Prefer the id frozen at Easy-Apply-click time over a fresh DOM/URL
+        // scrape: the split-pane can auto-advance to a different job (e.g. a
+        // recommendation refresh) between the click and the confirmation toast
+        // actually being observed, so a live re-read here can silently resolve
+        // to the WRONG posting even though applyInProgress is present. Live
+        // observed bug: job_url (built from the frozen applyState) stayed
+        // correct while a live-resolved listingId picked up a different job,
+        // producing a same-URL-different-id duplicate row. Only fall back to
+        // a live scrape if the click handler itself never captured an id.
+        const listingId = applyState.listingId ?? currentListingId();
 
         // No client-side dedupe cache: the backend upserts on
         // platform+platform_job_id, so a repeat report merges into the
@@ -448,11 +457,36 @@ function attachManualMarkListener(): void {
   });
 }
 
+// The popup asks the active tab for the job currently on screen so it can be
+// tailored before the user applies (Phase 4). Resolve from the live DOM only —
+// this script also runs on indeed.com (smartapply bridge), where staying silent
+// unless the Glassdoor selectors match keeps it from cross-responding on an
+// Indeed page.
+function attachCurrentJobProvider(): void {
+  chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+    if (message.type !== 'GET_CURRENT_JOB') return false;
+    const listingId = currentListingId();
+    const { title, company } = resolveTitleAndCompany();
+    if (!title || !company) return false;
+    const job: CurrentJobInfo = {
+      platform: 'glassdoor',
+      company,
+      title,
+      job_url: exactJobUrl(listingId),
+      platform_job_id: listingId,
+      job_description: currentJobDescription(),
+    };
+    sendResponse(job);
+    return false;
+  });
+}
+
 function init(): void {
   log('content script loaded', location.href);
   captureJobPageMeta();
   attachApplyClickDelegation();
   attachManualMarkListener();
+  attachCurrentJobProvider();
   observeForConfirmation();
 
   // Glassdoor's job page is client-side-routed — job views change without a

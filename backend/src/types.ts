@@ -181,8 +181,50 @@ export interface TailorEstimate {
   model: string;
 }
 
+// Body for POST /:id/tailor — lets the user opt out of the match rating
+// and/or suggestions sections (any combination of both, one, or neither),
+// so the model is never asked to produce a section that will just be
+// discarded. Omitted fields default to true (both included).
+export interface TailorRequestBody {
+  includeMatchRating?: boolean;
+  includeSuggestions?: boolean;
+}
+
+// The four sections every tailor run produces, parsed out of the raw
+// tailored_output blob (see tailoredResume.ts). The AI is prompted to emit a
+// strict, marker-delimited layout so this is reliably parseable; matchRating
+// is null when the model's rating couldn't be parsed or when the row predates
+// the structured format.
+export interface TailoredSections {
+  resume: string;
+  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
+  matchJustification: string;
+  suggestions: string;
+}
+
 // GET /settings/models response — model ids available from the user's own
 // provider account, for populating the Settings model field.
 export interface ModelsResponse {
   models: string[];
 }
+
+// GET /settings/known-pricing response — a curated, dated snapshot of
+// published provider prices (see backend/src/knownPricing.ts), used to
+// "sync known prices" for whatever models are in the pricing table.
+export interface KnownPricingResponse {
+  asOf: string;
+  pricing: ModelPricing;
+}
+
+// POST /settings/base-resume/extract response — plain text extracted from an
+// uploaded PDF/DOCX resume, for the client to review/edit before saving via
+// the existing PUT /settings baseResume field. Never written to settings itself.
+export interface ExtractResumeTextResponse {
+  text: string;
+}
+
+// GET /applications/:id/resume-versions/:versionId/download?format= — renders
+// a stored resume_versions.tailored_output on demand rather than storing
+// multiple binary formats per version (see resumeRender.ts).
+export const RESUME_DOWNLOAD_FORMATS = ['pdf', 'docx', 'txt'] as const;
+export type ResumeDownloadFormat = (typeof RESUME_DOWNLOAD_FORMATS)[number];

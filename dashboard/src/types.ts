@@ -113,6 +113,14 @@ export interface ResumeVersion {
   created_at: string;
 }
 
+// Body for POST /:id/tailor — lets the user opt out of the match rating
+// and/or suggestions sections (any combination). Omitted fields default to
+// true on the backend.
+export interface TailorOptions {
+  includeMatchRating?: boolean;
+  includeSuggestions?: boolean;
+}
+
 // Pre-generate cost estimate from GET /:id/tailor-estimate, shown before
 // spending real money on a tailor run.
 export interface TailorEstimate {
@@ -122,8 +130,35 @@ export interface TailorEstimate {
   model: string;
 }
 
+// The four sections a tailor run produces, parsed from the raw tailored_output
+// blob (see tailoredResume.ts). Mirrors backend/src/types.ts.
+export interface TailoredSections {
+  resume: string;
+  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
+  matchJustification: string;
+  suggestions: string;
+}
+
 // GET /settings/models response — model ids available from the user's own
 // provider account, for populating the Settings model field.
 export interface ModelsResponse {
   models: string[];
 }
+
+// GET /settings/known-pricing response — a curated, dated snapshot of
+// published provider prices, used to "sync known prices" in Settings.
+export interface KnownPricingResponse {
+  asOf: string;
+  pricing: ModelPricing;
+}
+
+// POST /settings/base-resume/extract response — plain text extracted from an
+// uploaded PDF/DOCX resume, for review/editing before saving via the normal
+// baseResume field. Never saved automatically.
+export interface ExtractResumeTextResponse {
+  text: string;
+}
+
+// GET /applications/:id/resume-versions/:versionId/download?format=
+export const RESUME_DOWNLOAD_FORMATS = ['pdf', 'docx', 'txt'] as const;
+export type ResumeDownloadFormat = (typeof RESUME_DOWNLOAD_FORMATS)[number];

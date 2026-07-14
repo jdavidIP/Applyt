@@ -8,6 +8,7 @@ import type {
   Settings,
   UpdateSettingsBody,
 } from './types.js';
+import { KNOWN_MODEL_PRICING } from './knownPricing.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -27,10 +28,13 @@ function resolveSettingsPath(): string {
 // stale: the table is fully user-editable in Settings, and a model absent from
 // it simply shows no cost (never a wrong one). Keyed by the exact model id the
 // user would enter.
+//
+// Sourced from the curated KNOWN_MODEL_PRICING snapshot (knownPricing.ts) so
+// this seed and the "sync known prices" button never drift apart.
 const DEFAULT_MODEL_PRICING: ModelPricing = {
-  'claude-sonnet-5': { inputPerMillion: 3, outputPerMillion: 15 },
-  'claude-opus-4-8': { inputPerMillion: 15, outputPerMillion: 75 },
-  'claude-haiku-4-5': { inputPerMillion: 0.8, outputPerMillion: 4 },
+  'claude-sonnet-5': KNOWN_MODEL_PRICING['claude-sonnet-5'],
+  'claude-opus-4-8': KNOWN_MODEL_PRICING['claude-opus-4-8'],
+  'claude-haiku-4-5': KNOWN_MODEL_PRICING['claude-haiku-4-5'],
   'gpt-4o': { inputPerMillion: 2.5, outputPerMillion: 10 },
   'gpt-4o-mini': { inputPerMillion: 0.15, outputPerMillion: 0.6 },
 };

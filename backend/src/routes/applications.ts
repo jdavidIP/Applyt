@@ -11,6 +11,8 @@ import type {
   WeeklyCount,
   ResumeVersion,
   TailorEstimate,
+  ResumeDownloadFormat,
+  TailorRequestBody,
 } from "../types.js";
 import {
   createApplicationSchema,
@@ -19,9 +21,13 @@ import {
   idParamSchema,
   markStaleSchema,
   bulkDeleteQuerySchema,
+  resumeVersionParamSchema,
+  resumeDownloadQuerySchema,
 } from "../validation.js";
 import type { SettingsStore } from "../settings.js";
 import { tailorResume } from "../ai.js";
+import { renderPdf, renderDocx } from "../resumeRender.js";
+import { parseTailoredResume } from "../tailoredResume.js";
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
@@ -486,7 +492,7 @@ export default async function applicationsRoutes(
   // Sends the base resume + this job's description to the user's chosen provider,
   // stores the result in resume_versions, and links it to the application. This
   // is the only route that makes an outbound network call (see ai.ts).
-  fastify.post<{ Params: { id: number } }>(
+  fastify.post<{ Params: { id: number }; Body: TailorRequestBody }>(
     "/applications/:id/tailor",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
@@ -494,6 +500,18 @@ export default async function applicationsRoutes(
         .prepare("SELECT * FROM applications WHERE id = ?")
         .get(request.params.id) as Application | undefined;
       if (!app) return reply.code(404).send({ error: "Application not found" });
+
+      const body = request.body ?? {};
+      if (
+        (body.includeMatchRating !== undefined && typeof body.includeMatchRating !== "boolean") ||
+        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean")
+      ) {
+        return reply.code(400).send({
+          error: "includeMatchRating and includeSuggestions must be booleans if provided.",
+        });
+      }
+      const includeMatchRating = body.includeMatchRating ?? true;
+      const includeSuggestions = body.includeSuggestions ?? true;
 
       const jobDescription = (app.job_description ?? "").trim();
       if (!jobDescription) {
@@ -529,6 +547,8 @@ export default async function applicationsRoutes(
           jobDescription,
           company: app.company,
           title: app.title,
+          includeMatchRating,
+          includeSuggestions,
         });
         output = result.output;
         usage = result.usage;
@@ -595,6 +615,51 @@ export default async function applicationsRoutes(
           "SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC",
         )
         .all(request.params.id) as ResumeVersion[];
+    },
+  );
+
+  // GET /applications/:id/resume-versions/:versionId/download?format=pdf|docx|txt
+  // Renders the stored tailored_output on demand rather than storing multiple
+  // binary formats per version — any past or present version becomes
+  // downloadable in any format, with no schema changes and no re-running the
+  // AI call. Every format contains only the tailored resume itself: the match
+  // rating and suggestions live in the dashboard, not in a submittable resume
+  // file. parseTailoredResume also transparently handles rows saved before the
+  // structured format existed.
+  fastify.get<{
+    Params: { id: number; versionId: number };
+    Querystring: { format: ResumeDownloadFormat };
+  }>(
+    "/applications/:id/resume-versions/:versionId/download",
+    { schema: { params: resumeVersionParamSchema, querystring: resumeDownloadQuerySchema } },
+    async (request, reply) => {
+      const { id, versionId } = request.params;
+      const version = db
+        .prepare("SELECT * FROM resume_versions WHERE id = ? AND application_id = ?")
+        .get(versionId, id) as ResumeVersion | undefined;
+      if (!version || !version.tailored_output) {
+        return reply.code(404).send({ error: "Resume version not found." });
+      }
+
+      const { format } = request.query;
+      const filenameBase = `resume-${id}-${versionId}`;
+      const { resume } = parseTailoredResume(version.tailored_output);
+
+      if (format === "txt") {
+        reply.header("Content-Disposition", `attachment; filename="${filenameBase}.txt"`);
+        return reply.type("text/plain").send(resume);
+      }
+      if (format === "pdf") {
+        const buffer = await renderPdf(resume);
+        reply.header("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
+        return reply.type("application/pdf").send(buffer);
+      }
+
+      const buffer = await renderDocx(resume);
+      reply.header("Content-Disposition", `attachment; filename="${filenameBase}.docx"`);
+      return reply
+        .type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        .send(buffer);
     },
   );
 }

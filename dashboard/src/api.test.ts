@@ -163,19 +163,20 @@ describe('api Phase 4 tailoring functions', () => {
     });
   });
 
-  test('tailor POSTs to /applications/:id/tailor with no body', async () => {
+  test('tailor POSTs to /applications/:id/tailor with the include-section options', async () => {
     global.fetch = vi.fn(
       async () => new Response(JSON.stringify({ id: 1, tailored_output: 'X' }), { status: 201 }),
     ) as unknown as typeof fetch;
 
-    const result = await api.tailor(7);
+    const result = await api.tailor(7, { includeMatchRating: false, includeSuggestions: true });
     expect(result).toEqual({ id: 1, tailored_output: 'X' });
     const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toContain('/applications/7/tailor');
     expect((init as RequestInit).method).toBe('POST');
-    // Bodyless POST must not declare a JSON content-type (same guard as DELETE).
-    const headers = new Headers((init as RequestInit).headers);
-    expect(headers.has('Content-Type')).toBe(false);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      includeMatchRating: false,
+      includeSuggestions: true,
+    });
   });
 
   test('listResumeVersions GETs /applications/:id/resume-versions', async () => {
@@ -214,5 +215,79 @@ describe('api Phase 4 tailoring functions', () => {
     expect(url).toContain('/settings/models?provider=anthropic');
     const headers = new Headers((init as RequestInit).headers);
     expect(headers.has('Content-Type')).toBe(false);
+  });
+
+  test('getKnownPricing GETs /settings/known-pricing with no body', async () => {
+    const payload = { asOf: '2026-07-13', pricing: { 'claude-sonnet-5': { inputPerMillion: 2, outputPerMillion: 10 } } };
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify(payload), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.getKnownPricing();
+    expect(result).toEqual(payload);
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/settings/known-pricing');
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.has('Content-Type')).toBe(false);
+  });
+});
+
+// Resume file upload/download (CLAUDE.md §8: "PDF/docx parsing library
+// choice"). Both functions deliberately bypass the shared request() helper:
+// a multipart upload must let the browser set its own Content-Type boundary,
+// and a file download is a Blob, not JSON.
+describe('api resume file upload/download functions', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('extractResumeText POSTs a FormData body with no manually-set Content-Type', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ text: 'Jane Doe — Engineer' }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const file = new File(['fake pdf bytes'], 'resume.pdf', { type: 'application/pdf' });
+    const result = await api.extractResumeText(file);
+    expect(result).toEqual({ text: 'Jane Doe — Engineer' });
+
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/settings/base-resume/extract');
+    expect((init as RequestInit).method).toBe('POST');
+    expect((init as RequestInit).body).toBeInstanceOf(FormData);
+    // The browser sets its own multipart boundary — a manually-set
+    // Content-Type here would break the upload (missing boundary).
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.has('Content-Type')).toBe(false);
+  });
+
+  test('extractResumeText surfaces the backend error message on failure', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: 'Unsupported file type.' }), { status: 400 }),
+    ) as unknown as typeof fetch;
+
+    const file = new File(['x'], 'resume.txt', { type: 'text/plain' });
+    await expect(api.extractResumeText(file)).rejects.toThrow('Unsupported file type.');
+  });
+
+  test('downloadResumeVersion GETs the download URL with a format query param and returns a Blob', async () => {
+    const blob = new Blob(['%PDF-1.4 fake'], { type: 'application/pdf' });
+    global.fetch = vi.fn(
+      async () => new Response(blob, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await api.downloadResumeVersion(7, 3, 'pdf');
+    expect(result).toBeInstanceOf(Blob);
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/applications/7/resume-versions/3/download?format=pdf');
+  });
+
+  test('downloadResumeVersion surfaces the backend error message on failure', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: 'Resume version not found.' }), { status: 404 }),
+    ) as unknown as typeof fetch;
+
+    await expect(api.downloadResumeVersion(7, 999, 'txt')).rejects.toThrow('Resume version not found.');
   });
 });

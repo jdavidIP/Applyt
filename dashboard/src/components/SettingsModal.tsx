@@ -60,6 +60,8 @@ export function SettingsModal({ onClose }: Props) {
   const [pricingRows, setPricingRows] = useState<PriceRow[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [knownPricing, setKnownPricing] = useState<ModelPricing>({});
+  const [knownPricingAsOf, setKnownPricingAsOf] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -111,11 +113,114 @@ export function SettingsModal({ onClose }: Props) {
     };
   }, [provider, hasKeyForProvider, loading]);
 
+  // Curated known-pricing snapshot (backend/src/knownPricing.ts) — static
+  // local data, no API key or network call needed, so fetch it unconditionally.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { asOf, pricing } = await api.getKnownPricing();
+        if (active) {
+          setKnownPricing(pricing);
+          setKnownPricingAsOf(asOf);
+        }
+      } catch {
+        // Non-fatal: the sync buttons below just won't find any known prices.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // "Sync models" — call the live model-list endpoint for every provider that
+  // has a key configured (not just the one currently selected in the dropdown
+  // above), and add any model missing from the pricing table, pre-filled with
+  // a known price when available. This is the one-click way to make sure the
+  // pricing table has every model actually available to the user, across both
+  // services, without them having to flip the provider selector back and forth.
+  const [syncingModels, setSyncingModels] = useState(false);
+  const [syncModelsError, setSyncModelsError] = useState<string | null>(null);
+  const providersWithKeys = AI_PROVIDERS.filter((p) =>
+    p === 'anthropic' ? hasAnthropicKey : hasOpenaiKey,
+  );
+
+  async function syncModelsFromProviders() {
+    setSyncingModels(true);
+    setSyncModelsError(null);
+    try {
+      const results = await Promise.allSettled(providersWithKeys.map((p) => api.getModels(p)));
+      const fetched = new Set<string>();
+      let anySucceeded = false;
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          anySucceeded = true;
+          for (const m of result.value.models) fetched.add(m);
+        }
+      }
+      if (!anySucceeded) {
+        setSyncModelsError('Could not reach any configured provider to fetch its model list.');
+        return;
+      }
+      setPricingRows((rows) => {
+        const existing = new Set(rows.map((r) => r.model.trim()));
+        const additions = [...fetched]
+          .filter((m) => !existing.has(m))
+          .map((m) => {
+            const known = knownPricing[m];
+            return {
+              model: m,
+              input: known ? String(known.inputPerMillion) : '',
+              output: known ? String(known.outputPerMillion) : '',
+            };
+          });
+        return additions.length > 0 ? [...rows, ...additions] : rows;
+      });
+    } finally {
+      setSyncingModels(false);
+    }
+  }
+
+  // "Sync known prices" — for whichever models are already in the table
+  // (any provider), overwrite their price with the curated known value when
+  // one exists. Rows with no known match are left exactly as the user set them.
+  function syncKnownPrices() {
+    setPricingRows((rows) =>
+      rows.map((row) => {
+        const known = knownPricing[row.model.trim()];
+        return known
+          ? { ...row, input: String(known.inputPerMillion), output: String(known.outputPerMillion) }
+          : row;
+      }),
+    );
+  }
+
+  // Upload a PDF/DOCX resume and extract plain text from it, so users don't
+  // have to paste their resume by hand. Deliberately does NOT save on its
+  // own: extraction is imperfect (column layouts, tables), so the result
+  // just replaces the textarea below for the user to review/edit before
+  // clicking the existing Save button.
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+
+  async function handleResumeFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file again later
+    if (!file) return;
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      const { text } = await api.extractResumeText(file);
+      setBaseResume(text);
+    } catch (err) {
+      setExtractError(err instanceof Error ? err.message : 'Could not read this file.');
+    } finally {
+      setExtracting(false);
+    }
+  }
+
   function updateRow(index: number, patch: Partial<PriceRow>) {
     setPricingRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
-  }
-  function addRow() {
-    setPricingRows((rows) => [...rows, { model: '', input: '', output: '' }]);
   }
   function removeRow(index: number) {
     setPricingRows((rows) => rows.filter((_, i) => i !== index));
@@ -123,6 +228,10 @@ export function SettingsModal({ onClose }: Props) {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (!model.trim()) {
+      setError('Model is required.');
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -181,6 +290,7 @@ export function SettingsModal({ onClose }: Props) {
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="e.g. claude-sonnet-5 or gpt-4o"
                 list="model-options"
+                required
               />
               <datalist id="model-options">
                 {availableModels.map((m) => (
@@ -219,25 +329,69 @@ export function SettingsModal({ onClose }: Props) {
             </label>
             <label className="span-2">
               Base resume (plain text)
+              <div className="resume-upload-row">
+                <input
+                  type="file"
+                  accept=".pdf,.docx"
+                  onChange={(e) => void handleResumeFile(e)}
+                  disabled={extracting}
+                />
+                {extracting && (
+                  <span className="settings-hint" style={{ margin: 0 }}>
+                    Extracting text…
+                  </span>
+                )}
+              </div>
+              {extractError && <p className="form-error">{extractError}</p>}
               <textarea
                 value={baseResume}
                 onChange={(e) => setBaseResume(e.target.value)}
                 rows={10}
                 placeholder="Paste your resume as plain text…"
               />
+              <span className="settings-hint" style={{ margin: 0 }}>
+                Uploading a PDF or Word (.docx) file replaces the text above — review and edit
+                before saving.
+              </span>
             </label>
 
             <div className="span-2 pricing-section">
               <div className="pricing-header">
                 <span className="stat-label">Model pricing (USD per million tokens)</span>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={addRow}>
-                  + Add model
-                </button>
+                <div className="pricing-header-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void syncModelsFromProviders()}
+                    disabled={syncingModels || providersWithKeys.length === 0}
+                    title={
+                      providersWithKeys.length === 0
+                        ? 'Configure an API key for at least one provider first'
+                        : undefined
+                    }
+                  >
+                    {syncingModels ? 'Syncing…' : 'Sync models'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={syncKnownPrices}
+                    disabled={Object.keys(knownPricing).length === 0}
+                  >
+                    Sync known prices
+                  </button>
+                </div>
               </div>
               <p className="settings-hint">
-                Used to estimate each tailor's cost. Defaults are approximate — verify against your
-                provider's current pricing. A model not listed here shows no cost.
+                Used to estimate each tailor's cost. A model not listed here shows no cost. Models
+                are only added via "Sync models", which fetches your current model list from every
+                provider with a key configured — there's no manual add or rename, so this table can
+                never drift from what your account actually offers.{' '}
+                {knownPricingAsOf
+                  ? `"Sync known prices" applies a curated snapshot last verified ${knownPricingAsOf} — always double-check against your provider's current pricing.`
+                  : "Verify against your provider's current pricing."}
               </p>
+              {syncModelsError && <p className="form-error">{syncModelsError}</p>}
               <div className="pricing-table">
                 <div className="pricing-row pricing-row-head">
                   <span>Model</span>
@@ -247,11 +401,7 @@ export function SettingsModal({ onClose }: Props) {
                 </div>
                 {pricingRows.map((row, i) => (
                   <div className="pricing-row" key={i}>
-                    <input
-                      value={row.model}
-                      onChange={(e) => updateRow(i, { model: e.target.value })}
-                      placeholder="model id"
-                    />
+                    <span className="pricing-model-name">{row.model}</span>
                     <input
                       type="number"
                       min={0}
