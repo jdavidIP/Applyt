@@ -47,10 +47,16 @@ describe('checkResumeCompleteness', () => {
     expect(missing.map((m) => m.field)).toContain('education');
   });
 
-  test('returns no warnings for an empty or near-empty resume (not yet filled in)', () => {
+  test('returns no warnings for a genuinely empty resume (not yet filled in)', () => {
     expect(checkResumeCompleteness('')).toEqual([]);
     expect(checkResumeCompleteness('   ')).toEqual([]);
-    expect(checkResumeCompleteness('TBD')).toEqual([]);
+  });
+
+  test('flags short garbage input as missing everything, rather than treating it as "not filled in"', () => {
+    const missing = checkResumeCompleteness('hi').map((m) => m.field);
+    expect(missing).toEqual(
+      expect.arrayContaining(['name', 'phone', 'location', 'experience', 'education']),
+    );
   });
 
   test('flags everything missing for clearly unrelated text', () => {

@@ -59,13 +59,16 @@ function hasEducationSection(text: string): boolean {
   return EDUCATION_RE.test(text);
 }
 
-// Returns the fields that couldn't be detected. An empty/near-empty resume
+// Returns the fields that couldn't be detected. A genuinely empty resume
 // returns no warnings — a blank base resume is a legitimate state (e.g. the
 // user is only configuring their provider/API key so far) and flagging
-// "everything is missing" on it is noise, not signal.
+// "everything is missing" on nothing typed at all is noise, not signal. Any
+// non-empty text the user actually entered gets checked, however short —
+// short garbage input ("hi") is exactly what this check exists to catch, not
+// something to wave through as "not filled in yet".
 export function checkResumeCompleteness(baseResume: string): MissingField[] {
   const text = baseResume ?? '';
-  if (text.trim().length < 20) return [];
+  if (text.trim().length === 0) return [];
 
   const lines = text.split(/\r?\n/);
   const checks: { field: ResumeCompletenessField; present: boolean }[] = [
