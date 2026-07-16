@@ -107,7 +107,12 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     }
     doc.moveDown(0.6);
 
+    // titleDateRow explicitly repositions doc.x to the date column when it
+    // draws the date; every subsequent left-margin block must reset doc.x
+    // back to PDF_MARGIN itself rather than trust the cursor left behind by
+    // whatever ran before it (see titleDateRow).
     function sectionHeader(label: string) {
+      doc.x = PDF_MARGIN;
       doc.font('Helvetica-Bold').fontSize(11).fillColor(ACCENT_COLOR).text(label.toUpperCase());
       const y = doc.y + 1;
       doc
@@ -120,26 +125,44 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
       doc.fillColor('black');
     }
 
+    // Enough width at 9.5pt oblique for the longest realistic date range
+    // ("January 2025 – August 2025"); reserving this keeps the left text from
+    // wrapping into the date column instead of wrapping earlier and cleanly.
+    const DATE_COLUMN_WIDTH = 140;
+    const DATE_COLUMN_GUTTER = 8;
+
     // Left title/company + right-aligned date on the same line: pin both
-    // calls to the same y, since pdfkit has no native two-column same-line
-    // layout primitive.
+    // calls to the same starting y, since pdfkit has no native two-column
+    // same-line layout primitive. The left text's own width is narrowed to
+    // leave room for the date column, and — since a long title/institution
+    // can legitimately wrap to two lines — the row's final doc.y is set to
+    // whichever call (the possibly-multi-line left text, or the single-line
+    // date) actually ends lower, so content drawn after this row never lands
+    // on top of a wrapped second line.
     function titleDateRow(leftBold: string, leftAccent: string, date: string) {
       const y = doc.y;
+      const leftWidth = date ? contentWidth - DATE_COLUMN_WIDTH - DATE_COLUMN_GUTTER : contentWidth;
       doc
         .font('Helvetica-Bold')
         .fontSize(10.5)
         .fillColor('black')
-        .text(leftBold, PDF_MARGIN, y, { continued: leftAccent.length > 0, width: contentWidth });
+        .text(leftBold, PDF_MARGIN, y, { continued: leftAccent.length > 0, width: leftWidth });
       if (leftAccent) {
         doc.font('Helvetica').fillColor(ACCENT_COLOR).text(leftAccent);
       }
+      const afterLeftY = doc.y;
+
       if (date) {
         doc
           .font('Helvetica-Oblique')
           .fontSize(9.5)
           .fillColor('black')
-          .text(date, PDF_MARGIN, y, { width: contentWidth, align: 'right' });
+          .text(date, PDF_MARGIN + contentWidth - DATE_COLUMN_WIDTH, y, {
+            width: DATE_COLUMN_WIDTH,
+            align: 'right',
+          });
       }
+      doc.y = Math.max(doc.y, afterLeftY);
       doc.fillColor('black');
     }
 
@@ -154,6 +177,7 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
 
     if (resume.summary) {
       sectionHeader('Professional Summary');
+      doc.x = PDF_MARGIN;
       doc.font('Helvetica').fontSize(9.5).fillColor('black').text(resume.summary, { width: contentWidth });
       doc.moveDown(0.5);
     }
@@ -181,6 +205,7 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     if (resume.skills.length) {
       sectionHeader('Technical Skills');
       for (const s of resume.skills) {
+        doc.x = PDF_MARGIN;
         doc
           .font('Helvetica-Bold')
           .fontSize(9.5)
@@ -198,10 +223,12 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
         titleDateRow(`${e.institution} — ${e.degree}`, '', e.dates);
         if (e.honors) {
           doc.moveDown(0.1);
+          doc.x = PDF_MARGIN;
           doc.font('Helvetica-Oblique').fontSize(9).fillColor('black').text(e.honors, { width: contentWidth });
         }
         if (e.coursework) {
           doc.moveDown(0.1);
+          doc.x = PDF_MARGIN;
           doc.font('Helvetica').fontSize(9).fillColor('black').text(e.coursework, { width: contentWidth });
         }
         doc.moveDown(0.3);

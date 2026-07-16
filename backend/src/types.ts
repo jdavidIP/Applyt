@@ -203,10 +203,15 @@ export interface TailorEstimate {
 // Body for POST /:id/tailor — lets the user opt out of the match rating
 // and/or suggestions sections (any combination of both, one, or neither),
 // so the model is never asked to produce a section that will just be
-// discarded. Omitted fields default to true (both included).
+// discarded. Omitted fields default to true (both included). targetOnePage
+// defaults to false: users who don't care about page count get today's
+// behavior unchanged; opting in asks the model to prioritize/condense content
+// relevant to the job posting to fit one page (advisory, not guaranteed —
+// see ai.ts).
 export interface TailorRequestBody {
   includeMatchRating?: boolean;
   includeSuggestions?: boolean;
+  targetOnePage?: boolean;
 }
 
 // The sections every tailor run produces, parsed out of the raw

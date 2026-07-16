@@ -504,14 +504,16 @@ export default async function applicationsRoutes(
       const body = request.body ?? {};
       if (
         (body.includeMatchRating !== undefined && typeof body.includeMatchRating !== "boolean") ||
-        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean")
+        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean") ||
+        (body.targetOnePage !== undefined && typeof body.targetOnePage !== "boolean")
       ) {
         return reply.code(400).send({
-          error: "includeMatchRating and includeSuggestions must be booleans if provided.",
+          error: "includeMatchRating, includeSuggestions, and targetOnePage must be booleans if provided.",
         });
       }
       const includeMatchRating = body.includeMatchRating ?? true;
       const includeSuggestions = body.includeSuggestions ?? true;
+      const targetOnePage = body.targetOnePage ?? false;
 
       const jobDescription = (app.job_description ?? "").trim();
       if (!jobDescription) {
@@ -549,6 +551,7 @@ export default async function applicationsRoutes(
           title: app.title,
           includeMatchRating,
           includeSuggestions,
+          targetOnePage,
         });
         output = result.output;
         usage = result.usage;

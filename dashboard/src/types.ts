@@ -117,10 +117,13 @@ export interface ResumeVersion {
 
 // Body for POST /:id/tailor — lets the user opt out of the match rating
 // and/or suggestions sections (any combination). Omitted fields default to
-// true on the backend.
+// true on the backend. targetOnePage defaults to false on the backend: asks
+// the model to prioritize/condense content relevant to the job posting to fit
+// one page (advisory, not guaranteed).
 export interface TailorOptions {
   includeMatchRating?: boolean;
   includeSuggestions?: boolean;
+  targetOnePage?: boolean;
 }
 
 // Pre-generate cost estimate from GET /:id/tailor-estimate, shown before

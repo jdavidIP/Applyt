@@ -592,6 +592,97 @@ test('POST /:id/tailor omits the match-rating and suggestions markers when opted
   assert.doesNotMatch(capturedSystemPrompt, /suggestions/);
 });
 
+test('POST /:id/tailor omits one-page guidance from the prompt by default', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedSystemPrompt = '';
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string) as { system: string };
+    capturedSystemPrompt = body.system;
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+            }),
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: false },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.doesNotMatch(capturedSystemPrompt, /one-page target/);
+});
+
+test('POST /:id/tailor adds one-page prioritization guidance when targetOnePage is requested', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedSystemPrompt = '';
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string) as { system: string };
+    capturedSystemPrompt = body.system;
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+            }),
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: false, targetOnePage: true },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.match(capturedSystemPrompt, /one-page target/);
+  assert.match(capturedSystemPrompt, /not fabrication/);
+});
+
+test('POST /:id/tailor 400s when targetOnePage is not a boolean', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { targetOnePage: 'yes' },
+  });
+  assert.equal(res.statusCode, 400);
+});
+
 test('POST /:id/tailor includes only the suggestions marker when only suggestions are requested', async () => {
   await app.inject({
     method: 'PUT',

@@ -19,6 +19,12 @@ export interface TailorParams {
   // section is always produced regardless of these flags.
   includeMatchRating: boolean;
   includeSuggestions: boolean;
+  // Optional, defaults to false: ask the model to actively fit the resume to
+  // one page by prioritizing/condensing content relevant to this job posting,
+  // rather than reproducing the base resume's full length. This is advisory —
+  // the model has no visibility into the actual rendered PDF/DOCX layout — so
+  // it reduces overflow for typical resumes without guaranteeing it.
+  targetOnePage: boolean;
 }
 
 export interface TailorResult {
@@ -58,7 +64,7 @@ function openaiModelsUrl(): string {
 // PDF/DOCX. The resume is always produced; matchRating/matchJustification/
 // suggestions are each included only if requested, so the model is never
 // asked (and never billed) to produce a field the user doesn't want.
-function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean): string {
+function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean, targetOnePage: boolean): string {
   const exampleFields = [
     `  "resume": {
     "contact": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1 555-0100", "location": "City, ST", "links": ["github.com/janedoe", "linkedin.com/in/janedoe"] },
@@ -97,6 +103,21 @@ function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean):
     '  resume. Omit "projects" entirely (not an empty array) if the base resume has',
     '  none. Every bullets array holds plain strings with no leading "-" or "•".',
   ];
+  if (targetOnePage) {
+    fieldNotes.push(
+      '- one-page target requested: this resume must fit comfortably on a single',
+      '  standard page. Prioritize whatever is most relevant to THIS job posting;',
+      '  if the full base resume would not fit, condense or omit the roles,',
+      '  bullets, projects, or coursework you judge least relevant to this posting',
+      '  first, keeping the most relevant material intact and prominent. This is',
+      '  about prioritization and cutting, not fabrication — still never invent,',
+      '  exaggerate, or misrepresent anything (see above); only omit or shorten',
+      '  what is already true. Rough budget: 3-5 bullets per role (fewer for',
+      '  older or less relevant roles), each bullet roughly one line, and prefer',
+      '  dropping or trimming older/tangential entries over shortening every',
+      '  bullet equally.',
+    );
+  }
   if (includeMatchRating) {
     fieldNotes.push(
       '- matchRating: required (because it was requested). An integer from 0 to 5',
@@ -161,7 +182,7 @@ async function callAnthropic(p: TailorParams): Promise<{ text: string; usage: To
     body: JSON.stringify({
       model: p.model,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt(p.includeMatchRating, p.includeSuggestions),
+      system: systemPrompt(p.includeMatchRating, p.includeSuggestions, p.targetOnePage),
       messages: [{ role: 'user', content: userPrompt(p) }],
     }),
   });
@@ -196,7 +217,7 @@ async function callOpenai(p: TailorParams): Promise<{ text: string; usage: Token
       model: p.model,
       max_tokens: MAX_TOKENS,
       messages: [
-        { role: 'system', content: systemPrompt(p.includeMatchRating, p.includeSuggestions) },
+        { role: 'system', content: systemPrompt(p.includeMatchRating, p.includeSuggestions, p.targetOnePage) },
         { role: 'user', content: userPrompt(p) },
       ],
     }),
