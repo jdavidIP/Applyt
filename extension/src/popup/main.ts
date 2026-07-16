@@ -21,6 +21,7 @@ const controlsEl = $('controls');
 const controlsHintEl = $('controls-hint');
 const optRating = $<HTMLInputElement>('opt-rating');
 const optSuggestions = $<HTMLInputElement>('opt-suggestions');
+const optOnePage = $<HTMLInputElement>('opt-one-page');
 const tailorBtn = $<HTMLButtonElement>('tailor-btn');
 const resultsEl = $('results');
 const matchEl = $('match');
@@ -135,6 +136,7 @@ async function handleTailor(): Promise<void> {
     const version = await tailorApplication(pendingApplicationId, {
       includeMatchRating: optRating.checked,
       includeSuggestions: optSuggestions.checked,
+      targetOnePage: optOnePage.checked,
     });
     renderResult(version);
     setStatus('Saved as a pending application — confirm it in the dashboard after you apply.');

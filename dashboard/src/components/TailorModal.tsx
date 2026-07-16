@@ -85,6 +85,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(null);
   const [includeMatchRating, setIncludeMatchRating] = useState(true);
   const [includeSuggestions, setIncludeSuggestions] = useState(true);
+  const [targetOnePage, setTargetOnePage] = useState(false);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
 
@@ -137,7 +138,11 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     setGenerating(true);
     setError(null);
     try {
-      const version = await api.tailor(application.id, { includeMatchRating, includeSuggestions });
+      const version = await api.tailor(application.id, {
+        includeMatchRating,
+        includeSuggestions,
+        targetOnePage,
+      });
       setVersions((prev) => [version, ...prev]);
       setSelected(version);
       onTailored();
@@ -217,6 +222,15 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               disabled={generating}
             />
             Include interview &amp; cover-letter suggestions
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={targetOnePage}
+              onChange={(e) => setTargetOnePage(e.target.checked)}
+              disabled={generating}
+            />
+            Target one page (may trim less relevant content to fit)
           </label>
         </div>
 

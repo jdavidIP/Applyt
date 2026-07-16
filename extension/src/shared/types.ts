@@ -62,8 +62,8 @@ export interface ApplicationResult {
 }
 
 // The resume_versions row returned by POST /applications/:id/tailor. Only the
-// fields the popup renders are typed; tailored_output is the raw marker-delimited
-// text parsed by parseTailoredResume (shared/tailoredResume.ts).
+// fields the popup renders are typed; tailored_output is the raw JSON-envelope
+// (or legacy-format) text parsed by parseTailoredResume (shared/tailoredResume.ts).
 export interface ResumeVersionResult {
   id: number;
   tailored_output: string | null;

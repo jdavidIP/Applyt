@@ -1,5 +1,7 @@
 // Mirrors backend/src/types.ts. Kept in sync manually (Phase 1 has no shared package).
 
+import type { StructuredResume } from './resumeSchema';
+
 export const PLATFORMS = ['indeed', 'linkedin', 'glassdoor', 'manual'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
@@ -115,10 +117,13 @@ export interface ResumeVersion {
 
 // Body for POST /:id/tailor — lets the user opt out of the match rating
 // and/or suggestions sections (any combination). Omitted fields default to
-// true on the backend.
+// true on the backend. targetOnePage defaults to false on the backend: asks
+// the model to prioritize/condense content relevant to the job posting to fit
+// one page (advisory, not guaranteed).
 export interface TailorOptions {
   includeMatchRating?: boolean;
   includeSuggestions?: boolean;
+  targetOnePage?: boolean;
 }
 
 // Pre-generate cost estimate from GET /:id/tailor-estimate, shown before
@@ -130,10 +135,14 @@ export interface TailorEstimate {
   model: string;
 }
 
-// The four sections a tailor run produces, parsed from the raw tailored_output
-// blob (see tailoredResume.ts). Mirrors backend/src/types.ts.
+// The sections a tailor run produces, parsed from the raw tailored_output blob
+// (see tailoredResume.ts). Mirrors backend/src/types.ts. `structured` is only
+// populated for rows written in the new JSON format (see resumeSchema.ts);
+// older rows get `structured: null` and the dashboard just shows the
+// flattened `resume` text as before.
 export interface TailoredSections {
   resume: string;
+  structured: StructuredResume | null;
   matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
   matchJustification: string;
   suggestions: string;

@@ -196,6 +196,42 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(list[0].id, version.id);
 });
 
+test('POST /:id/tailor 422s and does not persist a version when the model rejects a non-resume base resume', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: {
+      provider: 'anthropic',
+      anthropicApiKey: 'sk-ant-secret',
+      baseResume: 'This is a job posting for a Senior React role, not a resume.',
+    },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          error: 'not_a_resume',
+          message: 'The text saved as your base resume looks like a job posting, not a resume.',
+        }),
+      },
+    ],
+    usage: { input_tokens: 200, output_tokens: 20 },
+  });
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 422);
+  assert.match((res.json() as { error: string }).error, /job posting/i);
+
+  // No resume_versions row should have been persisted, and the application
+  // should not have been pointed at a (nonexistent) version.
+  const list = (await app.inject({ method: 'GET', url: `/applications/${created.id}/resume-versions` })).json() as ResumeVersion[];
+  assert.equal(list.length, 0);
+  const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
+  assert.equal(app2.resume_version_id, null);
+});
+
 test('DELETE /applications/:id succeeds when the application has a tailored resume version', async () => {
   await app.inject({
     method: 'PUT',
@@ -314,6 +350,36 @@ test('POST /:id/tailor uses the OpenAI response shape and its usage fields', asy
   assert.equal(version.output_tokens, 1000);
   // (2000/1e6)*2.5 + (1000/1e6)*10 = 0.005 + 0.01 = 0.015
   assert.ok(Math.abs((version.cost ?? 0) - 0.015) < 1e-9);
+});
+
+test('POST /:id/tailor sends max_completion_tokens (not max_tokens) to OpenAI', async () => {
+  // OpenAI's chat/completions API deprecated max_tokens; the newer
+  // reasoning-family models (o-series, gpt-5) reject it outright with a 400
+  // rather than tolerating it (unlike max_completion_tokens, which every
+  // current model accepts) — regression coverage for that outage.
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'openai', model: 'gpt-5', openaiApiKey: 'sk-openai', baseResume: 'BASE' },
+  });
+  const created = await createApp({ job_description: 'Backend role.' });
+
+  let capturedBody: Record<string, unknown> = {};
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    capturedBody = JSON.parse(init!.body as string) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'OPENAI TAILORED OUTPUT' } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 201);
+  assert.ok('max_completion_tokens' in capturedBody);
+  assert.ok(!('max_tokens' in capturedBody));
 });
 
 test('POST /:id/tailor records tokens but a null cost for an unpriced model', async () => {
@@ -566,7 +632,14 @@ test('POST /:id/tailor omits the match-rating and suggestions markers when opted
     capturedSystemPrompt = body.system;
     return new Response(
       JSON.stringify({
-        content: [{ type: 'text', text: '===TAILORED_RESUME===\nRESUME ONLY' }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+            }),
+          },
+        ],
         usage: { input_tokens: 10, output_tokens: 5 },
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -579,10 +652,101 @@ test('POST /:id/tailor omits the match-rating and suggestions markers when opted
     payload: { includeMatchRating: false, includeSuggestions: false },
   });
   assert.equal(res.statusCode, 201);
-  assert.match(capturedSystemPrompt, /===TAILORED_RESUME===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_RATING===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_JUSTIFICATION===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===SUGGESTIONS===/);
+  assert.match(capturedSystemPrompt, /"resume":/);
+  assert.doesNotMatch(capturedSystemPrompt, /matchRating/);
+  assert.doesNotMatch(capturedSystemPrompt, /matchJustification/);
+  assert.doesNotMatch(capturedSystemPrompt, /suggestions/);
+});
+
+test('POST /:id/tailor omits one-page guidance from the prompt by default', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedSystemPrompt = '';
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string) as { system: string };
+    capturedSystemPrompt = body.system;
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+            }),
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: false },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.doesNotMatch(capturedSystemPrompt, /one-page target/);
+});
+
+test('POST /:id/tailor adds one-page prioritization guidance when targetOnePage is requested', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedSystemPrompt = '';
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string) as { system: string };
+    capturedSystemPrompt = body.system;
+    return new Response(
+      JSON.stringify({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+            }),
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: false, targetOnePage: true },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.match(capturedSystemPrompt, /one-page target/);
+  assert.match(capturedSystemPrompt, /not fabrication/);
+});
+
+test('POST /:id/tailor 400s when targetOnePage is not a boolean', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { targetOnePage: 'yes' },
+  });
+  assert.equal(res.statusCode, 400);
 });
 
 test('POST /:id/tailor includes only the suggestions marker when only suggestions are requested', async () => {
@@ -599,7 +763,15 @@ test('POST /:id/tailor includes only the suggestions marker when only suggestion
     capturedSystemPrompt = body.system;
     return new Response(
       JSON.stringify({
-        content: [{ type: 'text', text: '===TAILORED_RESUME===\nRESUME\n===SUGGESTIONS===\n- tip' }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+              suggestions: ['tip'],
+            }),
+          },
+        ],
         usage: { input_tokens: 10, output_tokens: 5 },
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -612,9 +784,9 @@ test('POST /:id/tailor includes only the suggestions marker when only suggestion
     payload: { includeMatchRating: false, includeSuggestions: true },
   });
   assert.equal(res.statusCode, 201);
-  assert.match(capturedSystemPrompt, /===TAILORED_RESUME===/);
-  assert.match(capturedSystemPrompt, /===SUGGESTIONS===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_RATING===/);
+  assert.match(capturedSystemPrompt, /"resume":/);
+  assert.match(capturedSystemPrompt, /suggestions/);
+  assert.doesNotMatch(capturedSystemPrompt, /matchRating/);
 });
 
 test('POST /:id/tailor 502s and surfaces the provider error on an upstream failure', async () => {

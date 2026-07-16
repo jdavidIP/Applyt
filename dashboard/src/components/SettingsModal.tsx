@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { AI_PROVIDERS, type AiProvider, type ModelPricing, type SettingsInput } from '../types';
+import { checkResumeCompleteness, type MissingField } from '../resumeCompleteness';
 
 interface Props {
   onClose: () => void;
@@ -53,6 +54,12 @@ export function SettingsModal({ onClose }: Props) {
   const [provider, setProvider] = useState<AiProvider>('anthropic');
   const [model, setModel] = useState('');
   const [baseResume, setBaseResume] = useState('');
+  // Local, non-AI heuristic (Issue #14): fields checkResumeCompleteness
+  // couldn't detect in baseResume, shown as a dismissible warning on Save
+  // rather than a hard block — the user may genuinely have no phone number,
+  // or the heuristic may just have missed it. Reset to null on any edit so a
+  // stale warning doesn't linger after the user changes the text.
+  const [completenessWarning, setCompletenessWarning] = useState<MissingField[] | null>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
@@ -203,6 +210,14 @@ export function SettingsModal({ onClose }: Props) {
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
 
+  // Any edit to the resume text invalidates a previously-shown completeness
+  // warning, so the next Save attempt re-checks the new text rather than
+  // trusting a confirmation the user gave for different content.
+  function updateBaseResume(text: string) {
+    setBaseResume(text);
+    setCompletenessWarning(null);
+  }
+
   async function handleResumeFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file again later
@@ -211,7 +226,7 @@ export function SettingsModal({ onClose }: Props) {
     setExtractError(null);
     try {
       const { text } = await api.extractResumeText(file);
-      setBaseResume(text);
+      updateBaseResume(text);
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : 'Could not read this file.');
     } finally {
@@ -226,12 +241,7 @@ export function SettingsModal({ onClose }: Props) {
     setPricingRows((rows) => rows.filter((_, i) => i !== index));
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!model.trim()) {
-      setError('Model is required.');
-      return;
-    }
+  async function performSave() {
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -253,11 +263,31 @@ export function SettingsModal({ onClose }: Props) {
       setAnthropicKey('');
       setOpenaiKey('');
       setSaved(true);
+      setCompletenessWarning(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings.');
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!model.trim()) {
+      setError('Model is required.');
+      return;
+    }
+    // Local completeness heuristic (Issue #14): advisory only, never blocks —
+    // surface what looks missing and let the user confirm it's intentional
+    // (or go back and fix a genuine parsing miss) before actually saving.
+    if (completenessWarning === null) {
+      const missing = checkResumeCompleteness(baseResume);
+      if (missing.length > 0) {
+        setCompletenessWarning(missing);
+        return;
+      }
+    }
+    await performSave();
   }
 
   return (
@@ -345,7 +375,7 @@ export function SettingsModal({ onClose }: Props) {
               {extractError && <p className="form-error">{extractError}</p>}
               <textarea
                 value={baseResume}
-                onChange={(e) => setBaseResume(e.target.value)}
+                onChange={(e) => updateBaseResume(e.target.value)}
                 rows={10}
                 placeholder="Paste your resume as plain text…"
               />
@@ -427,6 +457,33 @@ export function SettingsModal({ onClose }: Props) {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {completenessWarning && completenessWarning.length > 0 && (
+          <div className="banner banner-warn">
+            <p style={{ margin: 0 }}>
+              We couldn't detect {completenessWarning.map((m) => m.label).join(', ')} in your base
+              resume. Is that missing on purpose, or did we just miss it while checking?
+            </p>
+            <div className="modal-actions" style={{ marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setCompletenessWarning(null)}
+                disabled={saving}
+              >
+                Let me check
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => void performSave()}
+                disabled={saving}
+              >
+                {saving ? 'Saving…' : 'Save anyway'}
+              </button>
             </div>
           </div>
         )}

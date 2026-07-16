@@ -27,7 +27,7 @@ import {
 import type { SettingsStore } from "../settings.js";
 import { tailorResume } from "../ai.js";
 import { renderPdf, renderDocx } from "../resumeRender.js";
-import { parseTailoredResume } from "../tailoredResume.js";
+import { parseTailoredResume, parseTailorRejection } from "../tailoredResume.js";
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
@@ -504,14 +504,16 @@ export default async function applicationsRoutes(
       const body = request.body ?? {};
       if (
         (body.includeMatchRating !== undefined && typeof body.includeMatchRating !== "boolean") ||
-        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean")
+        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean") ||
+        (body.targetOnePage !== undefined && typeof body.targetOnePage !== "boolean")
       ) {
         return reply.code(400).send({
-          error: "includeMatchRating and includeSuggestions must be booleans if provided.",
+          error: "includeMatchRating, includeSuggestions, and targetOnePage must be booleans if provided.",
         });
       }
       const includeMatchRating = body.includeMatchRating ?? true;
       const includeSuggestions = body.includeSuggestions ?? true;
+      const targetOnePage = body.targetOnePage ?? false;
 
       const jobDescription = (app.job_description ?? "").trim();
       if (!jobDescription) {
@@ -549,6 +551,7 @@ export default async function applicationsRoutes(
           title: app.title,
           includeMatchRating,
           includeSuggestions,
+          targetOnePage,
         });
         output = result.output;
         usage = result.usage;
@@ -560,6 +563,17 @@ export default async function applicationsRoutes(
           error:
             err instanceof Error ? err.message : "AI provider request failed.",
         });
+      }
+
+      // The model is prompted (ai.ts) to refuse instead of tailoring when the
+      // configured base resume clearly isn't a real resume (Issue #14). This
+      // call already happened and was billed, but there's nothing useful to
+      // persist as a resume_versions row, and storing one would pollute the
+      // historical cost-per-char estimate with a run that has a very
+      // different token profile than an actual successful tailoring.
+      const rejection = parseTailorRejection(output);
+      if (rejection) {
+        return reply.code(422).send({ error: rejection.message });
       }
 
       // Actual cost = tokens × the configured price for this model. NULL when the
@@ -643,19 +657,19 @@ export default async function applicationsRoutes(
 
       const { format } = request.query;
       const filenameBase = `resume-${id}-${versionId}`;
-      const { resume } = parseTailoredResume(version.tailored_output);
+      const { resume, structured } = parseTailoredResume(version.tailored_output);
 
       if (format === "txt") {
         reply.header("Content-Disposition", `attachment; filename="${filenameBase}.txt"`);
         return reply.type("text/plain").send(resume);
       }
       if (format === "pdf") {
-        const buffer = await renderPdf(resume);
+        const buffer = await renderPdf(structured ?? resume);
         reply.header("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
         return reply.type("application/pdf").send(buffer);
       }
 
-      const buffer = await renderDocx(resume);
+      const buffer = await renderDocx(structured ?? resume);
       reply.header("Content-Disposition", `attachment; filename="${filenameBase}.docx"`);
       return reply
         .type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")

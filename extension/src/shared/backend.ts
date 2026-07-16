@@ -76,6 +76,7 @@ export async function createPendingApplication(job: CurrentJobInfo): Promise<App
 export interface TailorOptions {
   includeMatchRating: boolean;
   includeSuggestions: boolean;
+  targetOnePage: boolean;
 }
 
 export async function tailorApplication(

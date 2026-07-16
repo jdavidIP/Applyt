@@ -4,7 +4,21 @@ import { parseTailoredResume } from './tailoredResume';
 // Mirrors the backend parser tests. The dashboard parses the raw tailored_output
 // itself (rather than the backend returning pre-split fields), so this guards
 // the client-side copy against drifting from the server's contract.
-const STRUCTURED = [
+const JSON_ENVELOPE = JSON.stringify({
+  resume: {
+    contact: { name: 'Jane Doe' },
+    experience: [
+      { title: 'Frontend Engineer', company: 'Acme', startDate: '2022', endDate: 'Present', bullets: ['Built React apps'] },
+    ],
+    education: [],
+    skills: [],
+  },
+  matchRating: 4,
+  matchJustification: ['Strong frontend match'],
+  suggestions: ['Mention your TypeScript depth'],
+});
+
+const LEGACY_MARKER_FORMAT = [
   '===TAILORED_RESUME===',
   'Jane Doe',
   '- Built React apps',
@@ -17,8 +31,18 @@ const STRUCTURED = [
 ].join('\n');
 
 describe('parseTailoredResume (dashboard)', () => {
-  test('splits the four marker-delimited sections', () => {
-    const parsed = parseTailoredResume(STRUCTURED);
+  test('parses the JSON envelope into structured + flattened resume', () => {
+    const parsed = parseTailoredResume(JSON_ENVELOPE);
+    expect(parsed.structured?.contact.name).toBe('Jane Doe');
+    expect(parsed.resume).toContain('Built React apps');
+    expect(parsed.matchRating).toBe(4);
+    expect(parsed.matchJustification).toContain('frontend match');
+    expect(parsed.suggestions).toContain('TypeScript depth');
+  });
+
+  test('falls back to the old marker-delimited format', () => {
+    const parsed = parseTailoredResume(LEGACY_MARKER_FORMAT);
+    expect(parsed.structured).toBeNull();
     expect(parsed.resume).toBe('Jane Doe\n- Built React apps');
     expect(parsed.matchRating).toBe(4);
     expect(parsed.matchJustification).toContain('frontend match');
@@ -27,6 +51,7 @@ describe('parseTailoredResume (dashboard)', () => {
 
   test('returns a null rating and empty meta for legacy pre-structured output', () => {
     const parsed = parseTailoredResume('Jane Doe\nEngineer\n\nSuggestions:\nDo X.');
+    expect(parsed.structured).toBeNull();
     expect(parsed.resume).toBe('Jane Doe\nEngineer');
     expect(parsed.matchRating).toBeNull();
     expect(parsed.suggestions).toContain('Do X.');
