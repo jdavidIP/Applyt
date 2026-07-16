@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTailoredResume, flattenStructuredResume } from '../src/tailoredResume.ts';
+import { parseTailoredResume, flattenStructuredResume, parseTailorRejection } from '../src/tailoredResume.ts';
 
 const MINIMAL_ENVELOPE = {
   resume: {
@@ -122,6 +122,38 @@ test('routes old flat legacy text (no markers, no JSON) to the flat-text path', 
   assert.equal(parsed.resume, 'Jane Doe\nEngineer');
   assert.equal(parsed.matchRating, null);
   assert.match(parsed.suggestions, /Do X\./);
+});
+
+test('parseTailorRejection detects the not_a_resume shape and returns its message', () => {
+  const raw = JSON.stringify({ error: 'not_a_resume', message: 'This looks like a job description, not a resume.' });
+  const rejection = parseTailorRejection(raw);
+  assert.ok(rejection);
+  assert.match(rejection.message, /job description/);
+});
+
+test('parseTailorRejection falls back to a default message when the model omits one', () => {
+  const rejection = parseTailorRejection(JSON.stringify({ error: 'not_a_resume' }));
+  assert.ok(rejection);
+  assert.match(rejection.message, /doesn't look like a resume/i);
+});
+
+test('parseTailorRejection returns null for a normal tailor envelope', () => {
+  const rejection = parseTailorRejection(JSON.stringify(MINIMAL_ENVELOPE));
+  assert.equal(rejection, null);
+});
+
+test('parseTailorRejection returns null for malformed/non-JSON output', () => {
+  assert.equal(parseTailorRejection('not json at all'), null);
+});
+
+test('a rejection blob does not get misparsed by parseTailoredResume as legacy text', () => {
+  // Belt-and-suspenders: routes/applications.ts must check parseTailorRejection
+  // BEFORE parseTailoredResume, since coerceStructuredResume correctly rejects
+  // this shape (no `contact`) and parseTailoredResume would otherwise fall
+  // back to treating the raw JSON blob as garbled legacy resume text.
+  const raw = JSON.stringify({ error: 'not_a_resume', message: 'Not a resume.' });
+  const parsed = parseTailoredResume(raw);
+  assert.equal(parsed.structured, null);
 });
 
 test('flattenStructuredResume renders sections in order and skips empty ones', () => {

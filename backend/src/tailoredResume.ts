@@ -138,6 +138,31 @@ export function flattenStructuredResume(resume: StructuredResume): string {
   return lines.join('\n').trim();
 }
 
+// Detects the model's "this isn't a resume" rejection shape (ai.ts's
+// systemPrompt asks for exactly this instead of a TailorResponseEnvelope when
+// BASE RESUME clearly isn't a real resume). Must be checked before
+// parseTailoredResume — a rejection blob would otherwise fail
+// coerceStructuredResume (no `contact` field) and fall through to the legacy
+// parsers, which would misread it as garbled resume text instead of the
+// deliberate refusal it is.
+export function parseTailorRejection(output: string): { message: string } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonPayload(output));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const envelope = parsed as Record<string, unknown>;
+  if (envelope.error !== 'not_a_resume') return null;
+  return {
+    message:
+      typeof envelope.message === 'string' && envelope.message.trim()
+        ? envelope.message.trim()
+        : "This doesn't look like a resume — check the base resume saved in Settings.",
+  };
+}
+
 function parseJsonEnvelope(output: string): TailoredSections | null {
   let parsed: unknown;
   try {

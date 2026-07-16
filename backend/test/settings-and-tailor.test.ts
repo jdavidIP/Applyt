@@ -196,6 +196,42 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(list[0].id, version.id);
 });
 
+test('POST /:id/tailor 422s and does not persist a version when the model rejects a non-resume base resume', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: {
+      provider: 'anthropic',
+      anthropicApiKey: 'sk-ant-secret',
+      baseResume: 'This is a job posting for a Senior React role, not a resume.',
+    },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          error: 'not_a_resume',
+          message: 'The text saved as your base resume looks like a job posting, not a resume.',
+        }),
+      },
+    ],
+    usage: { input_tokens: 200, output_tokens: 20 },
+  });
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 422);
+  assert.match((res.json() as { error: string }).error, /job posting/i);
+
+  // No resume_versions row should have been persisted, and the application
+  // should not have been pointed at a (nonexistent) version.
+  const list = (await app.inject({ method: 'GET', url: `/applications/${created.id}/resume-versions` })).json() as ResumeVersion[];
+  assert.equal(list.length, 0);
+  const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
+  assert.equal(app2.resume_version_id, null);
+});
+
 test('DELETE /applications/:id succeeds when the application has a tailored resume version', async () => {
   await app.inject({
     method: 'PUT',

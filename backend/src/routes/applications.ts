@@ -27,7 +27,7 @@ import {
 import type { SettingsStore } from "../settings.js";
 import { tailorResume } from "../ai.js";
 import { renderPdf, renderDocx } from "../resumeRender.js";
-import { parseTailoredResume } from "../tailoredResume.js";
+import { parseTailoredResume, parseTailorRejection } from "../tailoredResume.js";
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
@@ -563,6 +563,17 @@ export default async function applicationsRoutes(
           error:
             err instanceof Error ? err.message : "AI provider request failed.",
         });
+      }
+
+      // The model is prompted (ai.ts) to refuse instead of tailoring when the
+      // configured base resume clearly isn't a real resume (Issue #14). This
+      // call already happened and was billed, but there's nothing useful to
+      // persist as a resume_versions row, and storing one would pollute the
+      // historical cost-per-char estimate with a run that has a very
+      // different token profile than an actual successful tailoring.
+      const rejection = parseTailorRejection(output);
+      if (rejection) {
+        return reply.code(422).send({ error: rejection.message });
       }
 
       // Actual cost = tokens × the configured price for this model. NULL when the
