@@ -215,7 +215,11 @@ async function callOpenai(p: TailorParams): Promise<{ text: string; usage: Token
     },
     body: JSON.stringify({
       model: p.model,
-      max_tokens: MAX_TOKENS,
+      // OpenAI's chat/completions API deprecated max_tokens in favor of
+      // max_completion_tokens; the newer reasoning-family models (o-series,
+      // gpt-5) reject max_tokens outright with a 400 rather than tolerating
+      // it, so this must be max_completion_tokens for every model we call.
+      max_completion_tokens: MAX_TOKENS,
       messages: [
         { role: 'system', content: systemPrompt(p.includeMatchRating, p.includeSuggestions, p.targetOnePage) },
         { role: 'user', content: userPrompt(p) },

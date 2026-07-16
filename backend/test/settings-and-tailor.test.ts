@@ -316,6 +316,36 @@ test('POST /:id/tailor uses the OpenAI response shape and its usage fields', asy
   assert.ok(Math.abs((version.cost ?? 0) - 0.015) < 1e-9);
 });
 
+test('POST /:id/tailor sends max_completion_tokens (not max_tokens) to OpenAI', async () => {
+  // OpenAI's chat/completions API deprecated max_tokens; the newer
+  // reasoning-family models (o-series, gpt-5) reject it outright with a 400
+  // rather than tolerating it (unlike max_completion_tokens, which every
+  // current model accepts) — regression coverage for that outage.
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'openai', model: 'gpt-5', openaiApiKey: 'sk-openai', baseResume: 'BASE' },
+  });
+  const created = await createApp({ job_description: 'Backend role.' });
+
+  let capturedBody: Record<string, unknown> = {};
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    capturedBody = JSON.parse(init!.body as string) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'OPENAI TAILORED OUTPUT' } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 201);
+  assert.ok('max_completion_tokens' in capturedBody);
+  assert.ok(!('max_tokens' in capturedBody));
+});
+
 test('POST /:id/tailor records tokens but a null cost for an unpriced model', async () => {
   await app.inject({
     method: 'PUT',
