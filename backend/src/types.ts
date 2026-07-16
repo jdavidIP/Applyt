@@ -2,6 +2,25 @@
 // The union values here MUST stay in sync with the CHECK-able sets enforced in
 // validation.ts and with the SQLite schema (schema.ts / Section 5 of CLAUDE.md).
 
+import type {
+  ResumeContact,
+  ResumeExperienceEntry,
+  ResumeProjectEntry,
+  ResumeEducationEntry,
+  ResumeSkillCategory,
+  StructuredResume,
+  TailorResponseEnvelope,
+} from './resumeSchema.js';
+export type {
+  ResumeContact,
+  ResumeExperienceEntry,
+  ResumeProjectEntry,
+  ResumeEducationEntry,
+  ResumeSkillCategory,
+  StructuredResume,
+  TailorResponseEnvelope,
+};
+
 export const PLATFORMS = ['indeed', 'linkedin', 'glassdoor', 'manual'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
@@ -190,13 +209,19 @@ export interface TailorRequestBody {
   includeSuggestions?: boolean;
 }
 
-// The four sections every tailor run produces, parsed out of the raw
+// The sections every tailor run produces, parsed out of the raw
 // tailored_output blob (see tailoredResume.ts). The AI is prompted to emit a
-// strict, marker-delimited layout so this is reliably parseable; matchRating
-// is null when the model's rating couldn't be parsed or when the row predates
-// the structured format.
+// single structured JSON object (StructuredResume + rating/justification/
+// suggestions) so this is reliably parseable; matchRating is null when the
+// model's rating couldn't be parsed or when the row predates the structured
+// format. `resume` is always a flattened plain-text version of the resume
+// (for the txt download format and any other consumer expecting flat text);
+// `structured` is populated only for rows written in the new JSON format —
+// older rows (marker-delimited or pre-Phase-4 flat text) get `structured:
+// null` and fall back to the plain-text renderer.
 export interface TailoredSections {
   resume: string;
+  structured: StructuredResume | null;
   matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
   matchJustification: string;
   suggestions: string;

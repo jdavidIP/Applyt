@@ -116,6 +116,27 @@ const STRUCTURED_OUTPUT = [
   '- Emphasize your leadership experience in the interview',
 ].join('\n');
 
+const JSON_STRUCTURED_OUTPUT = JSON.stringify({
+  resume: {
+    contact: { name: 'John Doe', email: 'john@example.com', location: 'City, ST' },
+    summary: 'Senior engineer with a track record of shipping.',
+    experience: [
+      {
+        title: 'Senior Engineer',
+        company: 'Acme Corp',
+        startDate: 'Jun 2020',
+        endDate: 'Present',
+        bullets: ['Led a team of 5 engineers'],
+      },
+    ],
+    education: [{ institution: 'State University', degree: 'B.S. Computer Science', dates: '2014 – 2018' }],
+    skills: [{ label: 'Languages', items: ['Python', 'TypeScript'] }],
+  },
+  matchRating: 4,
+  matchJustification: ['Meets the core backend requirements', 'Missing the required Kubernetes experience'],
+  suggestions: ['Emphasize your leadership experience in the interview'],
+});
+
 test('parseTailoredResume splits the four marker-delimited sections', () => {
   const parsed = parseTailoredResume(STRUCTURED_OUTPUT);
   assert.equal(parsed.resume, 'John Doe\nSenior Engineer\n- Led a team of 5 engineers');
@@ -258,6 +279,40 @@ async function createTailoredVersion(): Promise<{ applicationId: number; version
   return { applicationId: created.id, versionId: version.id };
 }
 
+// A version whose stored tailored_output is the new JSON-envelope format
+// (see ai.ts/tailoredResume.ts), so the download route renders it through
+// the ATS template renderer instead of the plain-text fallback.
+async function createJsonTailoredVersion(): Promise<{ applicationId: number; versionId: number }> {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+  stubFetch(200, {
+    content: [{ type: 'text', text: JSON_STRUCTURED_OUTPUT }],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(tailorRes.statusCode, 201);
+  const version = tailorRes.json() as ResumeVersion;
+  return { applicationId: created.id, versionId: version.id };
+}
+
+// A version whose stored tailored_output predates even the marker format
+// (pre-Phase-4): flat text with a loose "Suggestions:" heading, or no
+// structure at all. Inserted directly since nothing produces this format
+// anymore — it only exists in resume_versions rows written before Phase 4.
+function insertLegacyFlatTextVersion(applicationId: number): number {
+  const result = db
+    .prepare(
+      `INSERT INTO resume_versions (application_id, base_resume_snapshot, tailored_output, ai_provider, model)
+       VALUES (?, 'BASE', ?, 'anthropic', 'claude-sonnet-5')`,
+    )
+    .run(applicationId, 'Jane Legacy\nBackend Engineer\n\nSuggestions:\nMention your Kubernetes experience.');
+  return Number(result.lastInsertRowid);
+}
+
 test('GET .../download?format=txt returns only the tailored resume, not the meta sections', async () => {
   const { applicationId, versionId } = await createTailoredVersion();
   const res = await app.inject({
@@ -315,4 +370,73 @@ test('GET .../download 400s on an invalid format value', async () => {
     url: `/applications/${applicationId}/resume-versions/${versionId}/download?format=exe`,
   });
   assert.equal(res.statusCode, 400);
+});
+
+// ---- Structured (JSON-envelope) resume_versions rows render through the ATS template ----
+
+test('GET .../download?format=txt on a JSON-structured version returns the flattened resume', async () => {
+  const { applicationId, versionId } = await createJsonTailoredVersion();
+  const res = await app.inject({
+    method: 'GET',
+    url: `/applications/${applicationId}/resume-versions/${versionId}/download?format=txt`,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.match(res.body, /John Doe/);
+  assert.match(res.body, /Acme Corp/);
+  assert.doesNotMatch(res.body, /"contact"/);
+  assert.doesNotMatch(res.body, /Missing the required Kubernetes/);
+});
+
+test('GET .../download?format=pdf on a JSON-structured version returns a valid PDF', async () => {
+  const { applicationId, versionId } = await createJsonTailoredVersion();
+  const res = await app.inject({
+    method: 'GET',
+    url: `/applications/${applicationId}/resume-versions/${versionId}/download?format=pdf`,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['content-type'] as string, /application\/pdf/);
+  assert.equal(res.rawPayload.subarray(0, 4).toString('latin1'), '%PDF');
+});
+
+test('GET .../download?format=docx on a JSON-structured version returns a valid DOCX', async () => {
+  const { applicationId, versionId } = await createJsonTailoredVersion();
+  const res = await app.inject({
+    method: 'GET',
+    url: `/applications/${applicationId}/resume-versions/${versionId}/download?format=docx`,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.rawPayload.subarray(0, 2).toString('latin1'), 'PK');
+});
+
+// ---- Back-compat: rows written before the JSON format keep downloading ----
+
+test('GET .../download still works for a pre-existing marker-format row in all three formats', async () => {
+  const { applicationId, versionId } = await createTailoredVersion();
+  for (const format of ['txt', 'pdf', 'docx'] as const) {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/applications/${applicationId}/resume-versions/${versionId}/download?format=${format}`,
+    });
+    assert.equal(res.statusCode, 200, `format=${format}`);
+  }
+});
+
+test('GET .../download works for a pre-Phase-4 flat-text row (no markers, no JSON)', async () => {
+  const created = await createApp({ job_description: 'Senior React role.' });
+  const versionId = insertLegacyFlatTextVersion(created.id);
+
+  for (const format of ['txt', 'pdf', 'docx'] as const) {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/applications/${created.id}/resume-versions/${versionId}/download?format=${format}`,
+    });
+    assert.equal(res.statusCode, 200, `format=${format}`);
+  }
+
+  const txtRes = await app.inject({
+    method: 'GET',
+    url: `/applications/${created.id}/resume-versions/${versionId}/download?format=txt`,
+  });
+  assert.match(txtRes.body, /Jane Legacy/);
+  assert.doesNotMatch(txtRes.body, /Mention your Kubernetes/);
 });

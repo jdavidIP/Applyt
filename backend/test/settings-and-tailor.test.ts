@@ -566,7 +566,14 @@ test('POST /:id/tailor omits the match-rating and suggestions markers when opted
     capturedSystemPrompt = body.system;
     return new Response(
       JSON.stringify({
-        content: [{ type: 'text', text: '===TAILORED_RESUME===\nRESUME ONLY' }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+            }),
+          },
+        ],
         usage: { input_tokens: 10, output_tokens: 5 },
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -579,10 +586,10 @@ test('POST /:id/tailor omits the match-rating and suggestions markers when opted
     payload: { includeMatchRating: false, includeSuggestions: false },
   });
   assert.equal(res.statusCode, 201);
-  assert.match(capturedSystemPrompt, /===TAILORED_RESUME===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_RATING===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_JUSTIFICATION===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===SUGGESTIONS===/);
+  assert.match(capturedSystemPrompt, /"resume":/);
+  assert.doesNotMatch(capturedSystemPrompt, /matchRating/);
+  assert.doesNotMatch(capturedSystemPrompt, /matchJustification/);
+  assert.doesNotMatch(capturedSystemPrompt, /suggestions/);
 });
 
 test('POST /:id/tailor includes only the suggestions marker when only suggestions are requested', async () => {
@@ -599,7 +606,15 @@ test('POST /:id/tailor includes only the suggestions marker when only suggestion
     capturedSystemPrompt = body.system;
     return new Response(
       JSON.stringify({
-        content: [{ type: 'text', text: '===TAILORED_RESUME===\nRESUME\n===SUGGESTIONS===\n- tip' }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+              suggestions: ['tip'],
+            }),
+          },
+        ],
         usage: { input_tokens: 10, output_tokens: 5 },
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -612,9 +627,9 @@ test('POST /:id/tailor includes only the suggestions marker when only suggestion
     payload: { includeMatchRating: false, includeSuggestions: true },
   });
   assert.equal(res.statusCode, 201);
-  assert.match(capturedSystemPrompt, /===TAILORED_RESUME===/);
-  assert.match(capturedSystemPrompt, /===SUGGESTIONS===/);
-  assert.doesNotMatch(capturedSystemPrompt, /===MATCH_RATING===/);
+  assert.match(capturedSystemPrompt, /"resume":/);
+  assert.match(capturedSystemPrompt, /suggestions/);
+  assert.doesNotMatch(capturedSystemPrompt, /matchRating/);
 });
 
 test('POST /:id/tailor 502s and surfaces the provider error on an upstream failure', async () => {

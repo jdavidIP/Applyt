@@ -33,14 +33,6 @@ export interface TailorResult {
 // strict layout parseTailoredResume expects).
 const MAX_TOKENS = 8192;
 
-// The exact section markers the model must emit, in this order. Kept in sync
-// with the parser in tailoredResume.ts — changing one without the other breaks
-// parsing of every new tailor run.
-const RESUME_MARKER = '===TAILORED_RESUME===';
-const RATING_MARKER = '===MATCH_RATING===';
-const JUSTIFICATION_MARKER = '===MATCH_JUSTIFICATION===';
-const SUGGESTIONS_MARKER = '===SUGGESTIONS===';
-
 // Endpoints are overridable via env so a user behind a proxy/gateway (or a test)
 // can redirect them; defaults are the real provider APIs.
 function anthropicUrl(): string {
@@ -60,50 +52,70 @@ function openaiModelsUrl(): string {
     : 'https://api.openai.com/v1/models';
 }
 
-// A strict, marker-delimited layout so the dashboard and download endpoints can
-// parse the sections out reliably (parseTailoredResume, tailoredResume.ts)
-// rather than guessing at loose headings. The resume section is always
-// produced; the match-rating (+ justification) and suggestions sections are
-// each optional, per the caller's request, so the model is never asked (and
-// never billed) to produce a section the user doesn't want.
+// A single JSON object (TailorResponseEnvelope, resumeSchema.ts) rather than
+// marker-delimited text, so the download endpoints can render the resume into
+// a real ATS template (resumeRender.ts) instead of dumb-dumping lines into a
+// PDF/DOCX. The resume is always produced; matchRating/matchJustification/
+// suggestions are each included only if requested, so the model is never
+// asked (and never billed) to produce a field the user doesn't want.
 function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean): string {
-  const markers = [RESUME_MARKER];
-  if (includeMatchRating) markers.push(RATING_MARKER, JUSTIFICATION_MARKER);
-  if (includeSuggestions) markers.push(SUGGESTIONS_MARKER);
-
-  const sections = [
-    `${RESUME_MARKER}`,
-    'A tailored, submission-ready version of the candidate\'s resume in plain text.',
-    'Emphasize the experience and skills most relevant to this role and echo the job',
-    'description\'s language where the candidate genuinely matches it. NEVER invent',
-    'experience, employers, dates, titles, or credentials the candidate does not',
-    'already have — only reorganize, reword, and re-emphasize what is present.',
+  const exampleFields = [
+    `  "resume": {
+    "contact": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1 555-0100", "location": "City, ST", "links": ["github.com/janedoe", "linkedin.com/in/janedoe"] },
+    "summary": "One paragraph, no bullets.",
+    "experience": [
+      { "title": "Software Engineer", "company": "Acme Corp", "location": "City, ST", "startDate": "Jun 2022", "endDate": "Present", "bullets": ["Led a team of 5 to ship X, resulting in Y."] }
+    ],
+    "projects": [
+      { "name": "Project Name", "dateRange": "Jan 2024 – Mar 2024", "bullets": ["Built X using Y."] }
+    ],
+    "education": [
+      { "institution": "State University", "degree": "B.S. Computer Science", "dates": "2018 – 2022", "honors": "Cum Laude", "coursework": "Relevant Coursework: Data Structures, Algorithms" }
+    ],
+    "skills": [
+      { "label": "Languages", "items": ["Python", "TypeScript"] }
+    ]
+  }`,
   ];
-
   if (includeMatchRating) {
-    sections.push(
-      '',
-      `${RATING_MARKER}`,
-      'A single integer from 0 to 5 on its own line, rating how well the candidate\'s',
-      'resume matches this job: 5 = an excellent, near-complete match; 0 = the posting',
-      'is essentially out of scope for this resume. Output only the digit — no stars,',
-      'no "/5", no words.',
-      '',
-      `${JUSTIFICATION_MARKER}`,
-      'Three to six concise "- " bullet points explaining the rating: which key',
-      'requirements the candidate clearly meets, which are only partially met, and',
-      'which are missing or unproven. Be honest and specific, referencing concrete',
-      'requirements from the job description.',
+    exampleFields.push(
+      '  "matchRating": 4',
+      '  "matchJustification": ["Meets requirement X.", "Partially meets requirement Y."]',
     );
   }
-
   if (includeSuggestions) {
-    sections.push(
-      '',
-      `${SUGGESTIONS_MARKER}`,
-      'Concrete, honest guidance as "- " bullet points: specific things to emphasize',
-      'or bring up in an interview, gaps to proactively address, and points worth',
-      'adding to a cover letter.',
+    exampleFields.push('  "suggestions": ["Emphasize X in the interview.", "Address gap Y proactively."]');
+  }
+
+  const fieldNotes = [
+    '- resume: required. A tailored, submission-ready version of the candidate\'s',
+    '  resume, restructured into the fields shown above. Emphasize the experience',
+    '  and skills most relevant to this role and echo the job description\'s',
+    '  language where the candidate genuinely matches it. NEVER invent experience,',
+    '  employers, dates, titles, or credentials the candidate does not already',
+    '  have — only reorganize, reword, and re-emphasize what is present in the base',
+    '  resume. Omit "projects" entirely (not an empty array) if the base resume has',
+    '  none. Every bullets array holds plain strings with no leading "-" or "•".',
+  ];
+  if (includeMatchRating) {
+    fieldNotes.push(
+      '- matchRating: required (because it was requested). An integer from 0 to 5',
+      '  rating how well the candidate\'s resume matches this job: 5 = an excellent,',
+      '  near-complete match; 0 = the posting is essentially out of scope for this',
+      '  resume.',
+      '- matchJustification: required (because it was requested). Three to six',
+      '  concise strings explaining the rating: which key requirements the',
+      '  candidate clearly meets, which are only partially met, and which are',
+      '  missing or unproven. Be honest and specific, referencing concrete',
+      '  requirements from the job description.',
+    );
+  }
+  if (includeSuggestions) {
+    fieldNotes.push(
+      '- suggestions: required (because it was requested). Concrete, honest',
+      '  guidance as plain strings: specific things to emphasize or bring up in an',
+      '  interview, gaps to proactively address, and points worth adding to a',
+      '  cover letter.',
     );
   }
 
@@ -111,17 +123,16 @@ function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean):
     'You are an expert resume writer, career coach, and technical recruiter.',
     'You will receive a candidate\'s base resume and a specific job description.',
     '',
-    `Return your response as EXACTLY ${markers.length} section${markers.length === 1 ? '' : 's'}, each`,
-    'introduced by its marker on its own line, in this order and with these exact',
-    'markers:',
+    'Respond with a single JSON object and nothing else — no markdown code',
+    'fences, no commentary before or after it. It must have exactly this shape',
+    '(illustrative values shown; omit any field not documented below as required):',
     '',
-    ...markers,
+    '{',
+    exampleFields.join(',\n'),
+    '}',
     '',
-    'Output nothing before the first marker and nothing after the last section.',
-    'Do not add any other markers, headings, code fences, or commentary outside',
-    `the ${markers.length === 1 ? 'section' : 'sections'} listed above. Use "- " for every bullet point.`,
-    '',
-    ...sections,
+    'Field notes:',
+    ...fieldNotes,
   ].join('\n');
 }
 
@@ -135,7 +146,7 @@ function userPrompt(p: TailorParams): string {
     'BASE RESUME:',
     p.baseResume,
     '',
-    'Produce the marked section(s) exactly as specified.',
+    'Respond with the single JSON object exactly as specified — no other text.',
   ].join('\n');
 }
 

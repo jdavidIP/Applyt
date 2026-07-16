@@ -1,10 +1,17 @@
 import PDFDocument from 'pdfkit';
-import { Document, Packer, Paragraph } from 'docx';
+import { AlignmentType, BorderStyle, Document, Packer, Paragraph, TabStopType, TextRun } from 'docx';
+import type { StructuredResume } from './resumeSchema.js';
 
-// Turns a tailored resume's plain text (already extracted from the full model
-// output by parseTailoredResume — see tailoredResume.ts) into a downloadable
-// PDF or DOCX. Only the resume section reaches here; the match rating and
-// suggestions are shown in the dashboard, not written into the resume file.
+// Turns a tailored resume into a downloadable PDF or DOCX. Only the resume
+// section reaches here; the match rating and suggestions are shown in the
+// dashboard, not written into the resume file.
+//
+// A `StructuredResume` (parseTailoredResume, tailoredResume.ts) renders into a
+// proper single-page ATS template (renderStructuredPdf/renderStructuredDocx,
+// below). A row from before the structured format existed only has flat text
+// to work with — those fall back to the original dumb line-by-line renderer
+// (renderPlainTextPdf/renderPlainTextDocx) unchanged, so old resume_versions
+// rows keep downloading exactly as they always have.
 
 interface ParsedLine {
   text: string;
@@ -13,8 +20,8 @@ interface ParsedLine {
 
 const BULLET_PREFIX = /^[-*•]\s+/;
 
-// Shared by both renderers so a bulleted line ("- Led a team of 5…") looks
-// like a bullet in both PDF and DOCX output rather than a stray dash.
+// Shared by both plain-text renderers so a bulleted line ("- Led a team of 5…")
+// looks like a bullet in both PDF and DOCX output rather than a stray dash.
 function parseLines(text: string): ParsedLine[] {
   return text.split('\n').map((line) => ({
     text: BULLET_PREFIX.test(line) ? line.replace(BULLET_PREFIX, '') : line,
@@ -22,7 +29,7 @@ function parseLines(text: string): ParsedLine[] {
   }));
 }
 
-export function renderPdf(resumeText: string): Promise<Buffer> {
+function renderPlainTextPdf(resumeText: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 54 });
     const chunks: Buffer[] = [];
@@ -43,7 +50,7 @@ export function renderPdf(resumeText: string): Promise<Buffer> {
   });
 }
 
-export async function renderDocx(resumeText: string): Promise<Buffer> {
+async function renderPlainTextDocx(resumeText: string): Promise<Buffer> {
   const paragraphs = parseLines(resumeText).map((line) => {
     if (line.text.trim() === '') return new Paragraph({ text: '' });
     if (line.bullet) return new Paragraph({ text: line.text, bullet: { level: 0 } });
@@ -51,4 +58,284 @@ export async function renderDocx(resumeText: string): Promise<Buffer> {
   });
   const doc = new Document({ sections: [{ children: paragraphs }] });
   return Packer.toBuffer(doc);
+}
+
+// ---- ATS template (StructuredResume) rendering ----
+
+const ACCENT_COLOR = '#1a56c4'; // hex, no leading # for docx APIs — stripped where needed
+
+function accentHex(): string {
+  return ACCENT_COLOR.replace('#', '');
+}
+
+function contactLineParts(resume: StructuredResume): string[] {
+  const { contact } = resume;
+  return [contact.email, contact.phone, ...(contact.links ?? []), contact.location].filter(
+    (v): v is string => Boolean(v),
+  );
+}
+
+function experienceDateRange(startDate: string, endDate: string): string {
+  return [startDate, endDate].filter(Boolean).join(' – ');
+}
+
+// ---- PDF ----
+// pdfkit has no auto-reflow/shrink-to-fit, so this renders at a fixed compact
+// scale rather than measuring and retrying — a resume long enough to overflow
+// one page will spill to a second page. Documented, accepted limitation
+// rather than building a measure+shrink retry loop (DOCX has no such risk,
+// since Word reflows on open).
+
+const PDF_MARGIN = 48;
+
+function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: PDF_MARGIN, size: 'LETTER' });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const contentWidth = doc.page.width - PDF_MARGIN * 2;
+
+    // Header: centered name + contact line.
+    doc.font('Helvetica-Bold').fontSize(18).fillColor(ACCENT_COLOR).text(resume.contact.name, { align: 'center' });
+    const contactLine = contactLineParts(resume).join('  |  ');
+    if (contactLine) {
+      doc.moveDown(0.15);
+      doc.font('Helvetica').fontSize(9).fillColor('black').text(contactLine, { align: 'center' });
+    }
+    doc.moveDown(0.6);
+
+    function sectionHeader(label: string) {
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(ACCENT_COLOR).text(label.toUpperCase());
+      const y = doc.y + 1;
+      doc
+        .moveTo(PDF_MARGIN, y)
+        .lineTo(PDF_MARGIN + contentWidth, y)
+        .strokeColor(ACCENT_COLOR)
+        .lineWidth(0.75)
+        .stroke();
+      doc.moveDown(0.4);
+      doc.fillColor('black');
+    }
+
+    // Left title/company + right-aligned date on the same line: pin both
+    // calls to the same y, since pdfkit has no native two-column same-line
+    // layout primitive.
+    function titleDateRow(leftBold: string, leftAccent: string, date: string) {
+      const y = doc.y;
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(10.5)
+        .fillColor('black')
+        .text(leftBold, PDF_MARGIN, y, { continued: leftAccent.length > 0, width: contentWidth });
+      if (leftAccent) {
+        doc.font('Helvetica').fillColor(ACCENT_COLOR).text(leftAccent);
+      }
+      if (date) {
+        doc
+          .font('Helvetica-Oblique')
+          .fontSize(9.5)
+          .fillColor('black')
+          .text(date, PDF_MARGIN, y, { width: contentWidth, align: 'right' });
+      }
+      doc.fillColor('black');
+    }
+
+    function bulletList(bullets: string[]) {
+      const bulletIndent = 12;
+      for (const bullet of bullets) {
+        const y = doc.y;
+        doc.font('Helvetica').fontSize(9.5).fillColor('black').text('•', PDF_MARGIN, y, { width: bulletIndent });
+        doc.text(bullet, PDF_MARGIN + bulletIndent, y, { width: contentWidth - bulletIndent });
+      }
+    }
+
+    if (resume.summary) {
+      sectionHeader('Professional Summary');
+      doc.font('Helvetica').fontSize(9.5).fillColor('black').text(resume.summary, { width: contentWidth });
+      doc.moveDown(0.5);
+    }
+
+    if (resume.experience.length) {
+      sectionHeader('Professional Experience');
+      for (const e of resume.experience) {
+        titleDateRow(e.title, ` — ${e.company}${e.location ? `, ${e.location}` : ''}`, experienceDateRange(e.startDate, e.endDate));
+        doc.moveDown(0.15);
+        bulletList(e.bullets);
+        doc.moveDown(0.4);
+      }
+    }
+
+    if (resume.projects?.length) {
+      sectionHeader('Projects');
+      for (const p of resume.projects) {
+        titleDateRow(p.name, '', p.dateRange ?? '');
+        doc.moveDown(0.15);
+        bulletList(p.bullets);
+        doc.moveDown(0.4);
+      }
+    }
+
+    if (resume.skills.length) {
+      sectionHeader('Technical Skills');
+      for (const s of resume.skills) {
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(9.5)
+          .fillColor('black')
+          .text(`${s.label}: `, { continued: true, width: contentWidth })
+          .font('Helvetica')
+          .text(s.items.join(', '));
+      }
+      doc.moveDown(0.5);
+    }
+
+    if (resume.education.length) {
+      sectionHeader('Education');
+      for (const e of resume.education) {
+        titleDateRow(`${e.institution} — ${e.degree}`, '', e.dates);
+        if (e.honors) {
+          doc.moveDown(0.1);
+          doc.font('Helvetica-Oblique').fontSize(9).fillColor('black').text(e.honors, { width: contentWidth });
+        }
+        if (e.coursework) {
+          doc.moveDown(0.1);
+          doc.font('Helvetica').fontSize(9).fillColor('black').text(e.coursework, { width: contentWidth });
+        }
+        doc.moveDown(0.3);
+      }
+    }
+
+    doc.end();
+  });
+}
+
+// ---- DOCX ----
+// docx exposes real primitives for the layout tricks pdfkit has to hand-roll
+// (paragraph border for the section-header rule, tabStops for left/right rows,
+// native hanging indent for bullets) — lower risk, and no page-fit concern
+// since Word reflows content on open.
+
+const DOCX_MARGIN_TWIPS = 720; // 0.5"
+const DOCX_PAGE_WIDTH_TWIPS = 12240; // US Letter, 8.5" * 1440
+const DOCX_CONTENT_WIDTH_TWIPS = DOCX_PAGE_WIDTH_TWIPS - DOCX_MARGIN_TWIPS * 2;
+
+function docxSectionHeader(label: string): Paragraph {
+  return new Paragraph({
+    spacing: { before: 200, after: 80 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: accentHex(), space: 1 } },
+    children: [new TextRun({ text: label.toUpperCase(), bold: true, color: accentHex(), size: 20 })],
+  });
+}
+
+function docxTitleDateRow(leftBold: string, leftAccent: string, date: string): Paragraph {
+  const children = [new TextRun({ text: leftBold, bold: true, size: 21 })];
+  if (leftAccent) children.push(new TextRun({ text: leftAccent, color: accentHex(), size: 21 }));
+  if (date) children.push(new TextRun({ text: `\t${date}`, italics: true, size: 19 }));
+  return new Paragraph({
+    tabStops: [{ type: TabStopType.RIGHT, position: DOCX_CONTENT_WIDTH_TWIPS }],
+    children,
+  });
+}
+
+function docxBullets(bullets: string[]): Paragraph[] {
+  return bullets.map(
+    (bullet) =>
+      new Paragraph({
+        text: bullet,
+        bullet: { level: 0 },
+        indent: { left: 360, hanging: 360 },
+      }),
+  );
+}
+
+async function renderStructuredDocx(resume: StructuredResume): Promise<Buffer> {
+  const children: Paragraph[] = [];
+
+  children.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: resume.contact.name, bold: true, color: accentHex(), size: 36 })],
+    }),
+  );
+  const contactLine = contactLineParts(resume).join('  |  ');
+  if (contactLine) {
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 120 },
+        children: [new TextRun({ text: contactLine, size: 18 })],
+      }),
+    );
+  }
+
+  if (resume.summary) {
+    children.push(docxSectionHeader('Professional Summary'));
+    children.push(new Paragraph({ text: resume.summary }));
+  }
+
+  if (resume.experience.length) {
+    children.push(docxSectionHeader('Professional Experience'));
+    for (const e of resume.experience) {
+      children.push(
+        docxTitleDateRow(e.title, ` — ${e.company}${e.location ? `, ${e.location}` : ''}`, experienceDateRange(e.startDate, e.endDate)),
+      );
+      children.push(...docxBullets(e.bullets));
+    }
+  }
+
+  if (resume.projects?.length) {
+    children.push(docxSectionHeader('Projects'));
+    for (const p of resume.projects) {
+      children.push(docxTitleDateRow(p.name, '', p.dateRange ?? ''));
+      children.push(...docxBullets(p.bullets));
+    }
+  }
+
+  if (resume.skills.length) {
+    children.push(docxSectionHeader('Technical Skills'));
+    for (const s of resume.skills) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: `${s.label}: `, bold: true }),
+            new TextRun({ text: s.items.join(', ') }),
+          ],
+        }),
+      );
+    }
+  }
+
+  if (resume.education.length) {
+    children.push(docxSectionHeader('Education'));
+    for (const e of resume.education) {
+      children.push(docxTitleDateRow(`${e.institution} — ${e.degree}`, '', e.dates));
+      if (e.honors) children.push(new Paragraph({ children: [new TextRun({ text: e.honors, italics: true, size: 18 })] }));
+      if (e.coursework) children.push(new Paragraph({ children: [new TextRun({ text: e.coursework, size: 18 })] }));
+    }
+  }
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: { top: DOCX_MARGIN_TWIPS, bottom: DOCX_MARGIN_TWIPS, left: DOCX_MARGIN_TWIPS, right: DOCX_MARGIN_TWIPS },
+          },
+        },
+        children,
+      },
+    ],
+  });
+  return Packer.toBuffer(doc);
+}
+
+export function renderPdf(resume: StructuredResume | string): Promise<Buffer> {
+  return typeof resume === 'string' ? renderPlainTextPdf(resume) : renderStructuredPdf(resume);
+}
+
+export async function renderDocx(resume: StructuredResume | string): Promise<Buffer> {
+  return typeof resume === 'string' ? renderPlainTextDocx(resume) : renderStructuredDocx(resume);
 }

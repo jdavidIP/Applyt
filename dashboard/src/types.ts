@@ -1,5 +1,7 @@
 // Mirrors backend/src/types.ts. Kept in sync manually (Phase 1 has no shared package).
 
+import type { StructuredResume } from './resumeSchema';
+
 export const PLATFORMS = ['indeed', 'linkedin', 'glassdoor', 'manual'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
@@ -130,10 +132,14 @@ export interface TailorEstimate {
   model: string;
 }
 
-// The four sections a tailor run produces, parsed from the raw tailored_output
-// blob (see tailoredResume.ts). Mirrors backend/src/types.ts.
+// The sections a tailor run produces, parsed from the raw tailored_output blob
+// (see tailoredResume.ts). Mirrors backend/src/types.ts. `structured` is only
+// populated for rows written in the new JSON format (see resumeSchema.ts);
+// older rows get `structured: null` and the dashboard just shows the
+// flattened `resume` text as before.
 export interface TailoredSections {
   resume: string;
+  structured: StructuredResume | null;
   matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
   matchJustification: string;
   suggestions: string;

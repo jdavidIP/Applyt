@@ -643,19 +643,19 @@ export default async function applicationsRoutes(
 
       const { format } = request.query;
       const filenameBase = `resume-${id}-${versionId}`;
-      const { resume } = parseTailoredResume(version.tailored_output);
+      const { resume, structured } = parseTailoredResume(version.tailored_output);
 
       if (format === "txt") {
         reply.header("Content-Disposition", `attachment; filename="${filenameBase}.txt"`);
         return reply.type("text/plain").send(resume);
       }
       if (format === "pdf") {
-        const buffer = await renderPdf(resume);
+        const buffer = await renderPdf(structured ?? resume);
         reply.header("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
         return reply.type("application/pdf").send(buffer);
       }
 
-      const buffer = await renderDocx(resume);
+      const buffer = await renderDocx(structured ?? resume);
       reply.header("Content-Disposition", `attachment; filename="${filenameBase}.docx"`);
       return reply
         .type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")

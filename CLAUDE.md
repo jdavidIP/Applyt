@@ -142,10 +142,12 @@ For external redirects, log the entry with `status = 'pending_confirmation'` and
 - Upload base resume (plain text first; PDF/docx parsing later)
 - "Tailor for this job" action on a saved application entry → sends resume + job description to the chosen provider → stores result in `resume_versions` linked to that application
 
-**Phase 5 — Google Sheets sync (optional, additive to CSV)**
-- User provides their own Google Cloud OAuth client credentials (documented step-by-step in `docs/GOOGLE_SHEETS_SETUP.md`)
-- One-way or on-demand sync of `applications` table to a user-owned Sheet
-- CSV export remains the permanent no-setup default — Sheets is opt-in, never required
+**Phase 5 — ATS-friendly resume template for tailored downloads**
+- AI tailoring output (Phase 4) becomes structured JSON (contact, summary, experience, projects, education, skills) instead of a flat text blob, so a tailored resume has real sections to render into rather than being dumb-dumped into a default-font PDF/DOCX
+- One default ATS-approved visual template (centered header, colored section headers with underline rules, right-aligned dates, hanging-indent bullets) applied to every tailored PDF/DOCX download — single column, no tables/images, ATS-parseable
+- No attempt to clone the visual layout of the user's originally-uploaded resume — the upload flow still reduces PDFs/DOCX to plain text (Phase 4), so there's no formatting to clone from; a single polished template is used for everyone
+- `resume_versions` rows written before this change (flat marker-text or older) keep downloading correctly forever via a legacy-format fallback in the parser — no data migration
+- (Google Sheets sync was considered for this slot and dropped: a one-way/on-demand sync requiring the user's own Google Cloud OAuth setup added real engineering cost for little benefit over the existing CSV export + manual upload path.)
 
 **Phase 6 — Polish for distribution**
 - `docker-compose.yml`, clear README with screenshots/GIFs, `SETUP.md`, `ARCHITECTURE.md`

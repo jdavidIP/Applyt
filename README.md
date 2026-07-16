@@ -4,9 +4,10 @@ A local-first, single-user job application tracker. You run it on your own machi
 nothing is sent to any server we operate. See [`CLAUDE.md`](./CLAUDE.md) for the full
 product spec and roadmap.
 
-> **Status: Phases 1–4 complete.** Manual tracking, auto-capture on Indeed/LinkedIn/
-> Glassdoor, lifecycle management, and AI resume tailoring with cost tracking all work
-> today. Google Sheets sync (Phase 5) and Docker packaging (Phase 6) are next.
+> **Status: Phases 1–5 complete.** Manual tracking, auto-capture on Indeed/LinkedIn/
+> Glassdoor, lifecycle management, AI resume tailoring with cost tracking, and an
+> ATS-friendly template for tailored resume downloads all work today. Docker
+> packaging (Phase 6) is next.
 
 ## Tech stack
 
@@ -42,6 +43,10 @@ this is deliberately self-hosted rather than a hosted service.
   and cost. A pre-generate cost estimate (extrapolated from your own tailoring
   history, or a rough static estimate before any history exists) is shown before you
   spend money running it.
+- **ATS-friendly resume downloads** — every tailored resume downloads as a PDF or
+  DOCX in a single, polished ATS-approved template (centered header, colored section
+  headers, right-aligned dates, hanging-indent bullets) instead of unstyled text in
+  a default font.
 
 ## Requirements
 
