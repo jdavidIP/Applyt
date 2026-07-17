@@ -75,6 +75,28 @@ export function LifecyclePanel({ onApplicationsChanged }: Props) {
 
   const maxWeekCount = stats ? Math.max(1, ...stats.perWeek.map((w) => w.count)) : 1;
 
+  // perWeek is ordered oldest -> newest (see backend/src/routes/applications.ts
+  // computePerWeek), so the last entry is the current week and the one before
+  // it is the prior week — used for the week-over-week trend below the title.
+  const weeks = stats?.perWeek ?? [];
+  const currentWeek = weeks[weeks.length - 1];
+  const previousWeek = weeks[weeks.length - 2];
+  let trend: { text: string; className: string } | null = null;
+  if (currentWeek && previousWeek) {
+    if (previousWeek.count === 0) {
+      trend =
+        currentWeek.count === 0
+          ? { text: 'No change', className: 'text-ink-soft' }
+          : { text: 'New this week', className: 'text-matcha-800' };
+    } else {
+      const pct = Math.round(((currentWeek.count - previousWeek.count) / previousWeek.count) * 100);
+      trend =
+        pct === 0
+          ? { text: 'No change', className: 'text-ink-soft' }
+          : { text: `${pct > 0 ? '+' : ''}${pct}% vs last week`, className: pct > 0 ? 'text-matcha-800' : 'text-rose-800' };
+    }
+  }
+
   return (
     <div className="mb-6 flex flex-col gap-3">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -91,16 +113,24 @@ export function LifecyclePanel({ onApplicationsChanged }: Props) {
         </div>
 
         <div className="card p-5 flex flex-col justify-between">
-          <span className="stat-label">Applications per week</span>
+          <div>
+            <span className="stat-label block">Applications per week</span>
+            {trend && <span className={`text-[11px] font-medium ${trend.className}`}>{trend.text}</span>}
+          </div>
           {stats && (
-            <div className="flex items-end gap-1 h-[32px]">
+            <div className="flex items-end justify-end gap-1.5 h-10 mt-2">
               {stats.perWeek.map((w) => (
                 <div
                   key={w.weekStart}
-                  className="week-bar w-[14px] min-h-[2px]"
-                  style={{ height: `${(w.count / maxWeekCount) * 100}%` }}
+                  className="flex flex-col-reverse items-center gap-0.5 w-[10px] h-full"
                   title={`${w.weekStart}: ${w.count}`}
-                />
+                >
+                  <div
+                    className="week-bar w-full min-h-[2px]"
+                    style={{ height: `${(w.count / maxWeekCount) * 100}%` }}
+                  />
+                  <span className="text-[9px] leading-none text-ink-soft">{w.count}</span>
+                </div>
               ))}
             </div>
           )}

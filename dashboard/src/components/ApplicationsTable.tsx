@@ -43,7 +43,14 @@ export function ApplicationsTable({
         </thead>
         <tbody className="divide-y divide-matcha-200">
           {applications.map((app) => (
-            <tr key={app.id} className="hover:bg-matcha-50/50 transition-colors">
+            <tr
+              key={app.id}
+              className={
+                app.status === 'pending_confirmation'
+                  ? 'bg-gray-100/60 hover:bg-gray-100 transition-colors'
+                  : 'hover:bg-matcha-50/50 transition-colors'
+              }
+            >
               <td className="px-4 py-4 font-medium">
                 {app.job_url ? (
                   <a
