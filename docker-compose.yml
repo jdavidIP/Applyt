@@ -1,0 +1,44 @@
+# One-command setup for the self-hosted Applyt tracker:
+#   docker compose up --build
+#
+# Dashboard -> http://localhost:5173  (nginx serves the SPA and proxies /api)
+# Backend   -> http://localhost:4317  (exposed for the browser extension in Phase 2)
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0        # bind all interfaces so the container is reachable
+      PORT: "4317"
+      # DB_PATH defaults to /app/backend/data/applications.db (the volume below).
+    volumes:
+      - applyt-data:/app/backend/data
+    ports:
+      - "4317:4317"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4317/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
+volumes:
+  applyt-data:

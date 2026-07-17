@@ -1,0 +1,14 @@
+# Keep build context small and reproducible — never copy host installs/builds.
+node_modules
+**/node_modules
+dist
+**/dist
+backend/data
+.git
+.gitignore
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
