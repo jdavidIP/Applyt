@@ -14,7 +14,9 @@ import type {
   ExtractResumeTextResponse,
   ResumeDownloadFormat,
   AiProvider,
+  PaginatedApplications,
 } from './types';
+import { PAGE_SIZE } from './types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
 // to the backend (see vite.config.ts). Override with VITE_API_BASE if needed.
@@ -57,13 +59,15 @@ function buildQuery(filters: Filters): string {
   if (filters.status) params.set('status', filters.status);
   params.set('sort', filters.sort);
   params.set('order', filters.order);
+  params.set('page', String(filters.page));
+  params.set('pageSize', String(PAGE_SIZE));
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
 
 export const api = {
-  list: (filters: Filters): Promise<Application[]> =>
-    request<Application[]>(`/applications${buildQuery(filters)}`),
+  list: (filters: Filters): Promise<PaginatedApplications> =>
+    request<PaginatedApplications>(`/applications${buildQuery(filters)}`),
 
   create: (input: ApplicationInput): Promise<Application> =>
     request<Application>('/applications', {

@@ -55,6 +55,16 @@ export interface Filters {
   status?: Status | '';
   sort: 'date_applied' | 'date_last_updated';
   order: 'asc' | 'desc';
+  page: number;
+}
+
+export const PAGE_SIZE = 25;
+
+export interface PaginatedApplications {
+  items: Application[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface WeeklyCount {

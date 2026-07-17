@@ -64,7 +64,7 @@ body {
     @apply text-xs font-medium text-ink-soft;
   }
   .input-field {
-    @apply bg-white border-[0.5px] border-matcha-200 rounded-lg px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-matcha-400;
+    @apply w-full bg-white border-[0.5px] border-matcha-200 rounded-lg px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-matcha-400;
   }
   .week-bar {
     @apply bg-matcha-400 rounded-t-sm;

@@ -6,64 +6,47 @@ interface Props {
   onChange: (next: Filters) => void;
 }
 
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`filter-chip ${active ? 'filter-chip-active' : 'filter-chip-inactive'}`}
-    >
-      {children}
-    </button>
-  );
-}
+const selectClass =
+  'bg-white border border-matcha-200 rounded-lg px-2 h-[36px] text-[13px] outline-none focus:border-matcha-400';
 
 // Drives the GET query params (platform/status filter, sort field + direction).
-// Platform/status are single-select chip groups (design system: pill filter
-// chips); sort field/direction stay plain selects since they're a value pick,
-// not a toggle set.
+// Platform/status were pill filter chips in the first pass, but with 7+
+// status values that read as visual clutter rather than a clean filter row
+// (Issue #20) — plain dropdowns instead, matching Sort by / Order.
 export function FilterBar({ filters, onChange }: Props) {
   return (
     <div className="card p-5 mb-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="flex flex-col gap-2">
           <span className="stat-label">Platform</span>
-          <div className="flex flex-wrap gap-2">
-            <Chip active={!filters.platform} onClick={() => onChange({ ...filters, platform: '' })}>
-              All
-            </Chip>
+          <select
+            value={filters.platform ?? ''}
+            onChange={(e) => onChange({ ...filters, platform: e.target.value as Filters['platform'] })}
+            className={selectClass}
+          >
+            <option value="">All</option>
             {PLATFORMS.map((p) => (
-              <Chip
-                key={p}
-                active={filters.platform === p}
-                onClick={() => onChange({ ...filters, platform: p })}
-              >
+              <option key={p} value={p}>
                 {PLATFORM_LABELS[p]}
-              </Chip>
+              </option>
             ))}
-          </div>
+          </select>
         </div>
 
         <div className="flex flex-col gap-2">
           <span className="stat-label">Status</span>
-          <div className="flex flex-wrap gap-2">
-            <Chip active={!filters.status} onClick={() => onChange({ ...filters, status: '' })}>
-              All
-            </Chip>
+          <select
+            value={filters.status ?? ''}
+            onChange={(e) => onChange({ ...filters, status: e.target.value as Filters['status'] })}
+            className={selectClass}
+          >
+            <option value="">All</option>
             {STATUSES.map((s) => (
-              <Chip key={s} active={filters.status === s} onClick={() => onChange({ ...filters, status: s })}>
+              <option key={s} value={s}>
                 {STATUS_LABELS[s]}
-              </Chip>
+              </option>
             ))}
-          </div>
+          </select>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -71,7 +54,7 @@ export function FilterBar({ filters, onChange }: Props) {
           <select
             value={filters.sort}
             onChange={(e) => onChange({ ...filters, sort: e.target.value as Filters['sort'] })}
-            className="bg-white border border-matcha-200 rounded-lg px-2 h-[36px] text-[13px] outline-none focus:border-matcha-400"
+            className={selectClass}
           >
             <option value="date_applied">Date applied</option>
             <option value="date_last_updated">Last updated</option>
@@ -83,7 +66,7 @@ export function FilterBar({ filters, onChange }: Props) {
           <select
             value={filters.order}
             onChange={(e) => onChange({ ...filters, order: e.target.value as Filters['order'] })}
-            className="bg-white border border-matcha-200 rounded-lg px-2 h-[36px] text-[13px] outline-none focus:border-matcha-400"
+            className={selectClass}
           >
             <option value="desc">Newest first</option>
             <option value="asc">Oldest first</option>

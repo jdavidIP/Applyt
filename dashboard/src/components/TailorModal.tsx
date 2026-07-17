@@ -303,7 +303,11 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               <span className="text-[10px] text-ink-soft">{usageSummary(selected)}</span>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn-secondary flex items-center gap-1.5" onClick={() => void handleCopy()}>
+              <button
+                type="button"
+                className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap"
+                onClick={() => void handleCopy()}
+              >
                 <IconCopy size={14} />
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -313,7 +317,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                   <button
                     key={format}
                     type="button"
-                    className="btn-secondary flex items-center gap-1.5 disabled:opacity-55"
+                    className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-55"
                     onClick={() => void handleDownload(format)}
                     disabled={downloading !== null}
                   >

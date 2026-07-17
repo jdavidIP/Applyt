@@ -645,8 +645,8 @@ test('popup flow: tailor a pending application, then a confirmed apply promotes 
   assert.equal(promoted.status, 'applied');
   assert.equal(promoted.resume_version_id, version.id); // resume still linked
 
-  const all = (await app.inject({ method: 'GET', url: '/applications' })).json() as Application[];
-  assert.equal(all.length, 1); // promoted in place, not duplicated
+  const all = (await app.inject({ method: 'GET', url: '/applications' })).json() as { items: Application[] };
+  assert.equal(all.items.length, 1); // promoted in place, not duplicated
 });
 
 test('POST /:id/tailor omits the match-rating and suggestions markers when opted out', async () => {

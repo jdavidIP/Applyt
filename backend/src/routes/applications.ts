@@ -205,12 +205,13 @@ export default async function applicationsRoutes(
 ): Promise<void> {
   const { db, settings } = opts;
 
-  // GET /applications — list with optional platform/status filter and sort.
+  // GET /applications — list with optional platform/status filter, sort, and
+  // pagination (page/pageSize; defaults 1/25, pageSize capped at 100).
   fastify.get<{ Querystring: ListApplicationsQuery }>(
     "/applications",
     { schema: { querystring: listApplicationsQuerySchema } },
     async (request) => {
-      const { platform, status, sort, order } = request.query;
+      const { platform, status, sort, order, page = 1, pageSize = 25 } = request.query;
       const where: string[] = [];
       const params: Record<string, string> = {};
       if (platform) {
@@ -221,14 +222,25 @@ export default async function applicationsRoutes(
         where.push("status = @status");
         params.status = status;
       }
+      const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "";
       const sortCol =
         sort === "date_last_updated" ? "date_last_updated" : "date_applied";
       const sortDir = order === "asc" ? "ASC" : "DESC";
+
+      const total = (
+        db.prepare(`SELECT COUNT(*) AS count FROM applications${whereSql}`).get(params) as {
+          count: number;
+        }
+      ).count;
+
+      const offset = (page - 1) * pageSize;
       const sql =
-        `SELECT * FROM applications` +
-        (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
-        ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}`;
-      return db.prepare(sql).all(params) as Application[];
+        `SELECT * FROM applications${whereSql}` +
+        ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}` +
+        ` LIMIT @pageSize OFFSET @offset`;
+      const items = db.prepare(sql).all({ ...params, pageSize, offset }) as Application[];
+
+      return { items, total, page, pageSize };
     },
   );
 

@@ -7,6 +7,7 @@ import { AddEditForm } from './components/AddEditForm';
 import { FilterBar } from './components/FilterBar';
 import { ExportButton } from './components/ExportButton';
 import { LifecyclePanel } from './components/LifecyclePanel';
+import { Pagination } from './components/Pagination';
 import { SettingsModal } from './components/SettingsModal';
 import { TailorModal } from './components/TailorModal';
 import { useToast } from './components/Toast';
@@ -16,10 +17,13 @@ const DEFAULT_FILTERS: Filters = {
   status: '',
   sort: 'date_applied',
   order: 'desc',
+  page: 1,
 };
 
 export default function App() {
   const [applications, setApplications] = useState<Application[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +38,10 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      setApplications(await api.list(filters));
+      const res = await api.list(filters);
+      setApplications(res.items);
+      setTotal(res.total);
+      setPageSize(res.pageSize);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load applications.');
     } finally {
@@ -83,8 +90,12 @@ export default function App() {
     }
   }
 
+  // Issue #20: page felt too small/sparse at 100% — a mild zoom (not a
+  // font-size rescale, since most sizing here is literal px matching the
+  // approved mockups) makes the whole page read bigger without touching
+  // every component's spacing individually.
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-cream [zoom:1.12]">
       <div className="max-w-[1100px] mx-auto px-5 py-10">
         <header className="flex justify-between items-start mb-6">
           <div>
@@ -120,7 +131,7 @@ export default function App() {
 
         <LifecyclePanel onApplicationsChanged={() => void load()} />
 
-        <FilterBar filters={filters} onChange={setFilters} />
+        <FilterBar filters={filters} onChange={(next) => setFilters({ ...next, page: 1 })} />
 
         {error && (
           <div className="rounded-xl border-[0.5px] border-rose-100 bg-white px-3.5 py-2.5 text-[13px] text-rose-800 mb-6 flex items-center gap-2">
@@ -134,17 +145,25 @@ export default function App() {
         {loading ? (
           <p className="text-center text-ink-soft py-10">Loading…</p>
         ) : (
-          <ApplicationsTable
-            applications={applications}
-            onStatusChange={handleStatusChange}
-            onEdit={(app) => {
-              setEditing(app);
-              setFormOpen(true);
-            }}
-            onDelete={handleDelete}
-            onTailor={(app) => setTailoring(app)}
-            busyId={busyId}
-          />
+          <>
+            <ApplicationsTable
+              applications={applications}
+              onStatusChange={handleStatusChange}
+              onEdit={(app) => {
+                setEditing(app);
+                setFormOpen(true);
+              }}
+              onDelete={handleDelete}
+              onTailor={(app) => setTailoring(app)}
+              busyId={busyId}
+            />
+            <Pagination
+              page={filters.page}
+              pageSize={pageSize}
+              total={total}
+              onPageChange={(page) => setFilters((f) => ({ ...f, page }))}
+            />
+          </>
         )}
 
         {formOpen && (

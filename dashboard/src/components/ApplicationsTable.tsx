@@ -91,7 +91,11 @@ export function ApplicationsTable({
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
-                    className={`btn-ghost p-1.5 flex items-center ${app.resume_version_id != null ? 'text-matcha-400' : ''}`}
+                    className={
+                      app.resume_version_id != null
+                        ? 'p-1.5 flex items-center rounded-lg bg-matcha-400 hover:bg-matcha-600 text-white transition-colors'
+                        : 'btn-ghost p-1.5 flex items-center'
+                    }
                     onClick={() => onTailor(app)}
                     title={
                       app.resume_version_id != null

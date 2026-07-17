@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { IconRefresh, IconCurrencyDollar, IconTrash, IconAlertTriangle } from '@tabler/icons-react';
+import { IconRefresh, IconCurrencyDollar, IconTrash, IconAlertTriangle, IconEye, IconEyeOff } from '@tabler/icons-react';
 import { api } from '../api';
 import { AI_PROVIDERS, type AiProvider, type ModelPricing, type SettingsInput } from '../types';
 import { checkResumeCompleteness, type MissingField } from '../resumeCompleteness';
 import { Modal } from './Modal';
+import { useToast } from './Toast';
 
 interface Props {
   onClose: () => void;
@@ -51,10 +52,10 @@ const hintClass = 'text-[11px] text-ink-soft mt-1';
 // file and is used solely to make the outbound tailoring call to the chosen
 // provider — nothing is sent anywhere else.
 export function SettingsModal({ onClose }: Props) {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const [provider, setProvider] = useState<AiProvider>('anthropic');
   const [model, setModel] = useState('');
@@ -67,6 +68,8 @@ export function SettingsModal({ onClose }: Props) {
   const [completenessWarning, setCompletenessWarning] = useState<MissingField[] | null>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
   const [pricingRows, setPricingRows] = useState<PriceRow[]>([]);
@@ -249,7 +252,6 @@ export function SettingsModal({ onClose }: Props) {
   async function performSave() {
     setSaving(true);
     setError(null);
-    setSaved(false);
     // Key fields are write-only: only send one if the user typed a new value,
     // so leaving it blank preserves the existing (never-displayed) key.
     const input: SettingsInput = {
@@ -267,8 +269,8 @@ export function SettingsModal({ onClose }: Props) {
       setPricingRows(pricingToRows(s.modelPricing));
       setAnthropicKey('');
       setOpenaiKey('');
-      setSaved(true);
       setCompletenessWarning(null);
+      showToast({ tone: 'success', message: 'Settings saved.' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings.');
     } finally {
@@ -317,6 +319,36 @@ export function SettingsModal({ onClose }: Props) {
         provider when you tailor a resume.
       </p>
 
+      {completenessWarning && completenessWarning.length > 0 && (
+        <div className="bg-amber-100 p-4 rounded-xl flex items-center justify-between gap-4 mt-4">
+          <div className="flex items-start gap-3">
+            <IconAlertTriangle size={18} stroke={1.75} className="text-amber-800 mt-0.5 shrink-0" />
+            <p className="text-amber-800 leading-tight m-0">
+              We couldn't detect {completenessWarning.map((m) => m.label).join(', ')} in your base
+              resume. Is that missing on purpose, or did we just miss it while checking?
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              className="px-3 py-1.5 text-xs font-medium bg-white/50 hover:bg-white text-amber-800 rounded-lg transition-colors"
+              onClick={() => setCompletenessWarning(null)}
+              disabled={saving}
+            >
+              Let me check
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1.5 text-xs font-medium bg-amber-800 text-white rounded-lg disabled:opacity-55"
+              onClick={() => void performSave()}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Save anyway'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-center text-ink-soft py-6">Loading…</p>
       ) : (
@@ -363,25 +395,45 @@ export function SettingsModal({ onClose }: Props) {
             </label>
             <label>
               <span className={labelClass}>Anthropic API key</span>
-              <input
-                className="input-field w-full"
-                type="password"
-                value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
-                placeholder={hasAnthropicKey ? 'configured — leave blank to keep' : 'not set'}
-                autoComplete="off"
-              />
+              <div className="relative flex items-center">
+                <input
+                  className="input-field pr-9"
+                  type={showAnthropicKey ? 'text' : 'password'}
+                  value={anthropicKey}
+                  onChange={(e) => setAnthropicKey(e.target.value)}
+                  placeholder={hasAnthropicKey ? 'configured — leave blank to keep' : 'not set'}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAnthropicKey((v) => !v)}
+                  className="absolute right-2.5 text-ink-soft hover:text-ink"
+                  aria-label={showAnthropicKey ? 'Hide API key' : 'Show API key'}
+                >
+                  {showAnthropicKey ? <IconEyeOff size={16} stroke={1.75} /> : <IconEye size={16} stroke={1.75} />}
+                </button>
+              </div>
             </label>
             <label>
               <span className={labelClass}>OpenAI API key</span>
-              <input
-                className="input-field w-full"
-                type="password"
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-                placeholder={hasOpenaiKey ? 'configured — leave blank to keep' : 'not set'}
-                autoComplete="off"
-              />
+              <div className="relative flex items-center">
+                <input
+                  className="input-field pr-9"
+                  type={showOpenaiKey ? 'text' : 'password'}
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  placeholder={hasOpenaiKey ? 'configured — leave blank to keep' : 'not set'}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOpenaiKey((v) => !v)}
+                  className="absolute right-2.5 text-ink-soft hover:text-ink"
+                  aria-label={showOpenaiKey ? 'Hide API key' : 'Show API key'}
+                >
+                  {showOpenaiKey ? <IconEyeOff size={16} stroke={1.75} /> : <IconEye size={16} stroke={1.75} />}
+                </button>
+              </div>
             </label>
           </div>
 
@@ -511,38 +563,7 @@ export function SettingsModal({ onClose }: Props) {
         </div>
       )}
 
-      {completenessWarning && completenessWarning.length > 0 && (
-        <div className="bg-amber-100 p-4 rounded-xl flex items-center justify-between gap-4 mt-4">
-          <div className="flex items-start gap-3">
-            <IconAlertTriangle size={18} stroke={1.75} className="text-amber-800 mt-0.5 shrink-0" />
-            <p className="text-amber-800 leading-tight m-0">
-              We couldn't detect {completenessWarning.map((m) => m.label).join(', ')} in your base
-              resume. Is that missing on purpose, or did we just miss it while checking?
-            </p>
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <button
-              type="button"
-              className="px-3 py-1.5 text-xs font-medium bg-white/50 hover:bg-white text-amber-800 rounded-lg transition-colors"
-              onClick={() => setCompletenessWarning(null)}
-              disabled={saving}
-            >
-              Let me check
-            </button>
-            <button
-              type="button"
-              className="px-3 py-1.5 text-xs font-medium bg-amber-800 text-white rounded-lg disabled:opacity-55"
-              onClick={() => void performSave()}
-              disabled={saving}
-            >
-              {saving ? 'Saving…' : 'Save anyway'}
-            </button>
-          </div>
-        </div>
-      )}
-
       {error && <p className="text-rose-800 text-[13px] mt-3">{error}</p>}
-      {saved && <p className="text-matcha-800 text-[13px] mt-3">Settings saved.</p>}
     </Modal>
   );
 }

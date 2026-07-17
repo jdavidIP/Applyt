@@ -90,6 +90,15 @@ export interface ListApplicationsQuery {
   status?: Status;
   sort?: 'date_applied' | 'date_last_updated';
   order?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaginatedApplications {
+  items: Application[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface MarkStaleBody {
