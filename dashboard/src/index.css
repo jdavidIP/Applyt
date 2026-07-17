@@ -97,6 +97,13 @@ body {
 .btn-ghost:hover:not(:disabled) {
   color: var(--text);
 }
+.export-menu-item {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.export-menu-item:hover {
+  background: var(--bg, #f4f5f7);
+}
 .btn-danger {
   background: transparent;
   color: var(--danger);

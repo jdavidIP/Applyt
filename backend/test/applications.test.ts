@@ -242,7 +242,7 @@ test('DELETE on a missing id returns 404', async () => {
   assert.equal(res.statusCode, 404);
 });
 
-test('CSV export returns a header, all rows, and escapes special characters', async () => {
+test('CSV export returns a human-readable header and escapes special characters', async () => {
   await createSample({ company: 'Normal Co', platform_job_id: 'csv1' });
   await createSample({ company: 'Comma, Inc', platform_job_id: 'csv2', notes: 'He said "hi"\nnew line' });
 
@@ -253,11 +253,40 @@ test('CSV export returns a header, all rows, and escapes special characters', as
 
   const body = res.body;
   const header = body.split('\r\n')[0];
-  assert.equal(header.split(',')[0], 'id');
-  assert.match(header, /company/);
-  // Comma-containing and quote-containing fields must be quoted/escaped.
+  // Curated, human-readable columns (Issue #16) — no raw internal id,
+  // resume_version_id, or created_at/updated_at bookkeeping columns.
+  assert.equal(header.split(',')[0], 'Date Applied');
+  assert.match(header, /Company/);
+  assert.match(header, /Match Rating/);
+  assert.doesNotMatch(header, /^id,/);
+  assert.doesNotMatch(header, /resume_version_id/);
+  // Comma-containing and quote-containing fields must still be quoted/escaped.
   assert.match(body, /"Comma, Inc"/);
   assert.match(body, /"He said ""hi""/);
+});
+
+test('CSV export appends a summary section with status/platform breakdowns and response rate', async () => {
+  await createSample({ platform: 'indeed', platform_job_id: 'sum1', status: 'applied' });
+  await createSample({ platform: 'linkedin', platform_job_id: 'sum2', status: 'interviewing' });
+  await createSample({ platform: 'linkedin', platform_job_id: 'sum3', status: 'rejected' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  const body = res.body;
+
+  assert.match(body, /SUMMARY/);
+  assert.match(body, /Total Applications,3/);
+  assert.match(body, /Applied,1/);
+  assert.match(body, /Interviewing,1/);
+  assert.match(body, /Rejected,1/);
+  assert.match(body, /Indeed,1/);
+  assert.match(body, /LinkedIn,2/);
+  // 2 of 3 are response-eligible outcomes (interviewing/rejected) out of 3
+  // eligible rows (none pending_confirmation) = 66.7%.
+  assert.match(body, /Response Rate,66\.7%/);
+  assert.match(body, /Applications per Week/);
+  assert.match(body, /Tailoring Insights/);
+  assert.match(body, /Applications with Tailored Resume,0/);
+  assert.match(body, /Average Match Rating,N\/A/);
 });
 
 test('export.csv is not shadowed by the :id route', async () => {

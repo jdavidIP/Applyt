@@ -82,6 +82,8 @@ export const api = {
 
   exportCsvUrl: (): string => `${API_BASE}/applications/export.csv`,
 
+  exportXlsxUrl: (): string => `${API_BASE}/applications/export.xlsx`,
+
   stats: (): Promise<StatsResponse> => request<StatsResponse>('/applications/stats'),
 
   markStale: (thresholdDays: number): Promise<{ updated: number }> =>
