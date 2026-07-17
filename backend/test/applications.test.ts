@@ -1,6 +1,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
+import ExcelJS from 'exceljs';
 import { buildApp } from '../src/app.ts';
 import { createDb } from '../src/db.ts';
 import type { Application } from '../src/types.ts';
@@ -292,6 +293,56 @@ test('CSV export appends a summary section with status/platform breakdowns and r
 test('export.csv is not shadowed by the :id route', async () => {
   // Ensures route ordering: export.csv must resolve to the CSV handler, not GET /:id 400.
   const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  assert.equal(res.statusCode, 200);
+});
+
+test('XLSX export returns a valid workbook with header row and data rows', async () => {
+  await createSample({ company: 'Normal Co', platform_job_id: 'xlsx1', status: 'applied' });
+  await createSample({ company: 'Comma, Inc', platform_job_id: 'xlsx2', status: 'interviewing' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.xlsx' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(
+    res.headers['content-type'],
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+  assert.match(res.headers['content-disposition'] as string, /attachment/);
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(res.rawPayload);
+
+  const sheet = workbook.getWorksheet('Applications');
+  assert.ok(sheet, 'Applications sheet is present');
+  assert.equal(sheet!.getRow(1).getCell(1).value, 'Date Applied');
+  assert.equal(sheet!.getRow(1).getCell(2).value, 'Company');
+  // header row + 2 data rows
+  assert.equal(sheet!.rowCount, 3);
+  const companies = [sheet!.getRow(2).getCell(2).value, sheet!.getRow(3).getCell(2).value];
+  assert.ok(companies.includes('Normal Co'));
+  assert.ok(companies.includes('Comma, Inc'));
+
+  const insights = workbook.getWorksheet('Insights');
+  assert.ok(insights, 'Insights sheet is present');
+  assert.equal(insights!.getCell(1, 1).value, 'Applyt — Application Insights');
+});
+
+test('XLSX export builds a valid workbook with no applications', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/export.xlsx' });
+  assert.equal(res.statusCode, 200);
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(res.rawPayload);
+
+  const sheet = workbook.getWorksheet('Applications');
+  assert.ok(sheet, 'Applications sheet is present even with zero rows');
+  assert.equal(sheet!.rowCount, 1); // header row only
+
+  const insights = workbook.getWorksheet('Insights');
+  assert.equal(insights!.getCell(3, 2).value, 0); // Total Applications
+});
+
+test('export.xlsx is not shadowed by the :id route', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/export.xlsx' });
   assert.equal(res.statusCode, 200);
 });
 

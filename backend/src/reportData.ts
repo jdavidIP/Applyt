@@ -30,11 +30,16 @@ export const APPLY_METHOD_LABELS: Record<ApplyMethod, string> = {
 
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
-// excluded from the denominator entirely.
-const RESPONSE_STATUSES = new Set(["interviewing", "rejected", "offer"]);
+// excluded from the denominator entirely — we don't yet know the application
+// was actually completed, so it shouldn't count against the rate either way.
+// Exported so routes/applications.ts's rolling-window stats endpoint uses the
+// same definition as this file's full-range report summary.
+export const RESPONSE_STATUSES = new Set(["interviewing", "rejected", "offer"]);
 
-// Monday 00:00:00 UTC of the ISO week containing `d`.
-function mondayOf(d: Date): Date {
+// Monday 00:00:00 UTC of the ISO week containing `d`. Exported for the same
+// reason as RESPONSE_STATUSES above — shared week-bucketing basis between the
+// rolling 8-week stats endpoint and this file's full-range report summary.
+export function mondayOf(d: Date): Date {
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const day = date.getUTCDay(); // 0=Sun..6=Sat
   const diff = (day === 0 ? -6 : 1) - day;

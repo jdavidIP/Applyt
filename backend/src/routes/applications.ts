@@ -34,27 +34,11 @@ import {
   APPLY_METHOD_LABELS,
   computeReportSummary,
   resolveVersionByAppId,
+  RESPONSE_STATUSES,
+  mondayOf,
   type AppVersionInfo,
 } from "../reportData.js";
 import { buildApplicationsWorkbook } from "../xlsxExport.js";
-
-// Confirmed-applied statuses that got some kind of outcome, for response-rate
-// purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
-// excluded from the denominator entirely — we don't yet know the application
-// was actually completed, so it shouldn't count against the rate either way.
-const RESPONSE_STATUSES = new Set(["interviewing", "rejected", "offer"]);
-
-// Monday 00:00:00 UTC of the ISO week containing `d`, used to bucket
-// applications into "applications per week" (CLAUDE.md §7 Phase 3).
-function mondayOf(d: Date): Date {
-  const date = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
-  );
-  const day = date.getUTCDay(); // 0=Sun..6=Sat
-  const diff = (day === 0 ? -6 : 1) - day;
-  date.setUTCDate(date.getUTCDate() + diff);
-  return date;
-}
 
 const WEEKS_IN_STATS = 8;
 
