@@ -5,6 +5,7 @@ import {
   PLATFORM_LABELS,
   APPLY_METHOD_LABELS,
   computeReportSummary,
+  neutralizeFormulaPrefix,
   type AppVersionInfo,
 } from "./reportData.js";
 
@@ -106,8 +107,8 @@ export function buildApplicationsWorkbook(
     const v = versionByAppId.get(a.id);
     const row = sheet.addRow({
       dateApplied: a.date_applied.slice(0, 10),
-      company: a.company,
-      title: a.title,
+      company: neutralizeFormulaPrefix(a.company),
+      title: neutralizeFormulaPrefix(a.title),
       platform: PLATFORM_LABELS[a.platform],
       applyMethod: APPLY_METHOD_LABELS[a.apply_method],
       status: STATUS_LABELS[a.status],
@@ -117,8 +118,8 @@ export function buildApplicationsWorkbook(
       aiProvider: v?.ai_provider ?? "",
       aiModel: v?.model ?? "",
       jobUrl: a.job_url ?? "",
-      notes: a.notes ?? "",
-      jobDescription: a.job_description ?? "",
+      notes: neutralizeFormulaPrefix(a.notes ?? ""),
+      jobDescription: neutralizeFormulaPrefix(a.job_description ?? ""),
     });
     row.eachCell((cell) => {
       cell.border = THIN_BORDERS;

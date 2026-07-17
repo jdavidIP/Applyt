@@ -36,6 +36,7 @@ import {
   resolveVersionByAppId,
   RESPONSE_STATUSES,
   mondayOf,
+  neutralizeFormulaPrefix,
   type AppVersionInfo,
 } from "../reportData.js";
 import { buildApplicationsWorkbook } from "../xlsxExport.js";
@@ -110,7 +111,7 @@ function mergeStatus(existing: string, incoming: string): string {
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s = String(value);
+  const s = neutralizeFormulaPrefix(String(value));
   // Quote if the field contains a comma, quote, CR or LF; double up embedded quotes.
   if (/[",\r\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
@@ -233,14 +234,19 @@ export default async function applicationsRoutes(
         }
       ).count;
 
-      const offset = (page - 1) * pageSize;
+      // Clamp to the last valid page so a page number left over from before a
+      // delete/bulk-action shrank the result set doesn't return an empty page.
+      const maxPage = Math.max(1, Math.ceil(total / pageSize));
+      const clampedPage = Math.min(page, maxPage);
+
+      const offset = (clampedPage - 1) * pageSize;
       const sql =
         `SELECT * FROM applications${whereSql}` +
         ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}` +
         ` LIMIT @pageSize OFFSET @offset`;
       const items = db.prepare(sql).all({ ...params, pageSize, offset }) as Application[];
 
-      return { items, total, page, pageSize };
+      return { items, total, page: clampedPage, pageSize };
     },
   );
 

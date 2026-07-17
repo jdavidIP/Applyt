@@ -210,10 +210,22 @@ test('GET paginates results with page/pageSize and reports total', async () => {
   const lastPage = await app.inject({ method: 'GET', url: '/applications?pageSize=2&page=3' });
   assert.equal((lastPage.json() as { items: Application[] }).items.length, 1); // 5 total, 2 pages of 2 + 1 remainder
 
+  // A page number past the end (e.g. left over after a delete shrank the
+  // result set) is clamped to the last valid page instead of returning an
+  // empty result with no way back.
   const pastEnd = await app.inject({ method: 'GET', url: '/applications?pageSize=2&page=10' });
-  const pastEndBody = pastEnd.json() as { items: Application[]; total: number };
-  assert.equal(pastEndBody.items.length, 0); // no error, just empty
+  const pastEndBody = pastEnd.json() as { items: Application[]; total: number; page: number };
+  assert.equal(pastEndBody.page, 3); // clamped to the last page (5 total, pageSize 2 -> 3 pages)
+  assert.equal(pastEndBody.items.length, 1); // same content as requesting page=3 directly
   assert.equal(pastEndBody.total, 5); // total still reflects the full filtered set
+});
+
+test('GET clamps page to 1 when the filtered result set is empty', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications?status=offer&page=5' });
+  const body = res.json() as { items: Application[]; total: number; page: number };
+  assert.equal(body.page, 1);
+  assert.equal(body.items.length, 0);
+  assert.equal(body.total, 0);
 });
 
 test('GET defaults to page 1 with pageSize 25 when unspecified', async () => {
@@ -306,6 +318,23 @@ test('CSV export returns a human-readable header and escapes special characters'
   // Comma-containing and quote-containing fields must still be quoted/escaped.
   assert.match(body, /"Comma, Inc"/);
   assert.match(body, /"He said ""hi""/);
+});
+
+test('CSV export neutralizes leading formula characters to prevent CSV injection', async () => {
+  await createSample({
+    company: '=cmd|"/c calc"!A1',
+    title: '+HYPERLINK("http://evil")',
+    platform_job_id: 'formula1',
+    notes: '-2+3',
+    job_description: '@SUM(A1)',
+  });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  const body = res.body;
+  assert.match(body, /'=cmd/);
+  assert.match(body, /'\+HYPERLINK/);
+  assert.match(body, /'-2\+3/);
+  assert.match(body, /'@SUM/);
 });
 
 test('CSV export appends a summary section with status/platform breakdowns and response rate', async () => {

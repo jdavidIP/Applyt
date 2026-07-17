@@ -42,6 +42,13 @@ export default function App() {
       setApplications(res.items);
       setTotal(res.total);
       setPageSize(res.pageSize);
+      // The backend clamps to the last valid page (e.g. after a delete shrinks
+      // the result set past the requested page); mirror that back into filters
+      // so Pagination and the next fetch stay in sync instead of re-requesting
+      // the now-empty page.
+      if (res.page !== filters.page) {
+        setFilters((f) => ({ ...f, page: res.page }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load applications.');
     } finally {
