@@ -196,6 +196,37 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(list[0].id, version.id);
 });
 
+test('CSV export (Issue #16) resolves tailoring info — match rating, provider, model — per application', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          matchRating: 4,
+        }),
+      },
+    ],
+    usage: { input_tokens: 10, output_tokens: 5 },
+  });
+  const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(tailorRes.statusCode, 201);
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  const body = res.body;
+  assert.match(body, /4\/5/);
+  assert.match(body, /anthropic/);
+  assert.match(body, /Applications with Tailored Resume,1/);
+  assert.match(body, /Average Match Rating,4\.0\/5/);
+});
+
 test('POST /:id/tailor 422s and does not persist a version when the model rejects a non-resume base resume', async () => {
   await app.inject({
     method: 'PUT',

@@ -28,24 +28,17 @@ import type { SettingsStore } from "../settings.js";
 import { tailorResume } from "../ai.js";
 import { renderPdf, renderDocx } from "../resumeRender.js";
 import { parseTailoredResume, parseTailorRejection } from "../tailoredResume.js";
-
-// Confirmed-applied statuses that got some kind of outcome, for response-rate
-// purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
-// excluded from the denominator entirely — we don't yet know the application
-// was actually completed, so it shouldn't count against the rate either way.
-const RESPONSE_STATUSES = new Set(["interviewing", "rejected", "offer"]);
-
-// Monday 00:00:00 UTC of the ISO week containing `d`, used to bucket
-// applications into "applications per week" (CLAUDE.md §7 Phase 3).
-function mondayOf(d: Date): Date {
-  const date = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
-  );
-  const day = date.getUTCDay(); // 0=Sun..6=Sat
-  const diff = (day === 0 ? -6 : 1) - day;
-  date.setUTCDate(date.getUTCDate() + diff);
-  return date;
-}
+import {
+  STATUS_LABELS,
+  PLATFORM_LABELS,
+  APPLY_METHOD_LABELS,
+  computeReportSummary,
+  resolveVersionByAppId,
+  RESPONSE_STATUSES,
+  mondayOf,
+  type AppVersionInfo,
+} from "../reportData.js";
+import { buildApplicationsWorkbook } from "../xlsxExport.js";
 
 const WEEKS_IN_STATS = 8;
 
@@ -71,23 +64,32 @@ interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
 }
 
-// Columns exported to CSV, in order.
-const CSV_COLUMNS: (keyof Application)[] = [
-  "id",
-  "platform",
-  "company",
-  "title",
-  "job_url",
-  "platform_job_id",
-  "apply_method",
-  "status",
-  "date_applied",
-  "date_last_updated",
-  "notes",
-  "job_description",
-  "resume_version_id",
-  "created_at",
-  "updated_at",
+// ---- CSV export (Issue #16) ----
+// The previous export dumped every raw DB column (internal id, resume_version_id
+// FK, created_at/updated_at bookkeeping) with no structure — "correctly
+// generated" but of little use to a human. This produces a two-section report
+// instead: a clean, human-readable detail table (one row per application, with
+// tailoring info resolved from resume_versions rather than exposing the raw
+// FK), followed by a summary/insights block below a blank separator row.
+// Any tool that just reads until a shorter row still gets a clean table from
+// the top section — the summary is additive, not a format change to the detail
+// rows a spreadsheet import would rely on.
+
+const CSV_DETAIL_HEADERS = [
+  "Date Applied",
+  "Company",
+  "Job Title",
+  "Platform",
+  "Application Method",
+  "Status",
+  "Last Updated",
+  "Resume Tailored",
+  "Match Rating",
+  "AI Provider",
+  "AI Model",
+  "Job URL",
+  "Notes",
+  "Job Description",
 ];
 
 // Statuses an automatic/manual re-detection of a job is allowed to set. A user's
@@ -116,13 +118,85 @@ function csvEscape(value: unknown): string {
   return s;
 }
 
-function toCsv(rows: Application[]): string {
-  const header = CSV_COLUMNS.join(",");
-  const lines = rows.map((row) =>
-    CSV_COLUMNS.map((col) => csvEscape(row[col])).join(","),
+function csvRow(values: (string | number | null | undefined)[]): string {
+  return values.map(csvEscape).join(",");
+}
+
+// date_last_updated is stored as a full ISO timestamp (unlike date_applied,
+// a plain date) — trim it to just the date for a report column, matching the
+// Date Applied column's format instead of showing a raw timestamp.
+function csvDate(isoTimestamp: string): string {
+  return isoTimestamp.slice(0, 10);
+}
+
+function buildApplicationsReport(
+  rows: Application[],
+  versionByAppId: Map<number, AppVersionInfo>,
+): string {
+  const lines: string[] = [csvRow(CSV_DETAIL_HEADERS)];
+
+  for (const a of rows) {
+    const v = versionByAppId.get(a.id);
+    lines.push(
+      csvRow([
+        csvDate(a.date_applied),
+        a.company,
+        a.title,
+        PLATFORM_LABELS[a.platform],
+        APPLY_METHOD_LABELS[a.apply_method],
+        STATUS_LABELS[a.status],
+        csvDate(a.date_last_updated),
+        v ? "Yes" : "No",
+        v?.matchRating != null ? `${v.matchRating}/5` : "",
+        v?.ai_provider ?? "",
+        v?.model ?? "",
+        a.job_url,
+        a.notes,
+        a.job_description,
+      ]),
+    );
+  }
+
+  const summary = computeReportSummary(rows, versionByAppId);
+
+  // ---- Summary / insights, below a blank separator row ----
+  lines.push("");
+  lines.push(csvRow(["SUMMARY"]));
+  lines.push(csvRow(["Total Applications", summary.totalApplications]));
+
+  lines.push("");
+  lines.push(csvRow(["Applications by Status"]));
+  for (const s of summary.byStatus) lines.push(csvRow([s.label, s.count]));
+
+  lines.push("");
+  lines.push(csvRow(["Applications by Platform"]));
+  for (const p of summary.byPlatform) lines.push(csvRow([p.label, p.count]));
+
+  lines.push("");
+  lines.push(
+    csvRow([
+      "Response Rate",
+      summary.responseRate !== null ? `${(summary.responseRate * 100).toFixed(1)}%` : "N/A",
+    ]),
   );
+
+  lines.push("");
+  lines.push(csvRow(["Applications per Week"]));
+  lines.push(csvRow(["Week Starting", "Count"]));
+  for (const w of summary.perWeek) lines.push(csvRow([w.weekStart, w.count]));
+
+  lines.push("");
+  lines.push(csvRow(["Tailoring Insights"]));
+  lines.push(csvRow(["Applications with Tailored Resume", summary.tailoredCount]));
+  lines.push(
+    csvRow([
+      "Average Match Rating",
+      summary.avgMatchRating !== null ? `${summary.avgMatchRating.toFixed(1)}/5` : "N/A",
+    ]),
+  );
+
   // CRLF line endings for maximum spreadsheet compatibility (RFC 4180).
-  return [header, ...lines].join("\r\n") + "\r\n";
+  return lines.join("\r\n") + "\r\n";
 }
 
 export default async function applicationsRoutes(
@@ -158,16 +232,57 @@ export default async function applicationsRoutes(
     },
   );
 
-  // GET /applications/export.csv — full table as a CSV download.
-  // Declared before the ':id' route so 'export.csv' is never parsed as an id.
-  fastify.get("/applications/export.csv", async (_request, reply) => {
+  // Shared by both export routes: every application row plus tailoring info
+  // (ai_provider/model/matchRating) resolved from its linked resume_versions row.
+  function loadReportData(): { rows: Application[]; versionByAppId: Map<number, AppVersionInfo> } {
     const rows = db
       .prepare("SELECT * FROM applications ORDER BY date_applied DESC, id DESC")
       .all() as Application[];
+
+    const versionIds = rows
+      .map((r) => r.resume_version_id)
+      .filter((id): id is number => id !== null);
+    const versions = versionIds.length
+      ? (db
+          .prepare(
+            `SELECT id, application_id, ai_provider, model, tailored_output
+             FROM resume_versions WHERE id IN (${versionIds.map(() => "?").join(",")})`,
+          )
+          .all(...versionIds) as Pick<
+          ResumeVersion,
+          "id" | "application_id" | "ai_provider" | "model" | "tailored_output"
+        >[])
+      : [];
+    return { rows, versionByAppId: resolveVersionByAppId(versions) };
+  }
+
+  // GET /applications/export.csv — a structured, human-readable CSV report
+  // (Issue #16), not a raw table dump. Declared before the ':id' route so
+  // 'export.csv' is never parsed as an id.
+  fastify.get("/applications/export.csv", async (_request, reply) => {
+    const { rows, versionByAppId } = loadReportData();
     reply
       .header("Content-Type", "text/csv; charset=utf-8")
       .header("Content-Disposition", 'attachment; filename="applications.csv"')
-      .send(toCsv(rows));
+      .send(buildApplicationsReport(rows, versionByAppId));
+  });
+
+  // GET /applications/export.xlsx — a styled Excel workbook: a formatted,
+  // bordered table with a frozen header/autofilter on one sheet, plus a
+  // second "Insights" sheet with summary tables and in-cell data-bar charts.
+  // CSV stays the zero-setup default (CLAUDE.md §2); this is the "open it and
+  // it already looks professional" alternative some users asked for (Issue #16).
+  fastify.get("/applications/export.xlsx", async (_request, reply) => {
+    const { rows, versionByAppId } = loadReportData();
+    const workbook = buildApplicationsWorkbook(rows, versionByAppId);
+    const buffer = await workbook.xlsx.writeBuffer();
+    reply
+      .header(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header("Content-Disposition", 'attachment; filename="applications.xlsx"')
+      .send(Buffer.from(buffer));
   });
 
   // GET /applications/stats — applications-per-week (last 8 weeks) + response rate.

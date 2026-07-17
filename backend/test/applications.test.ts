@@ -1,6 +1,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
+import ExcelJS from 'exceljs';
 import { buildApp } from '../src/app.ts';
 import { createDb } from '../src/db.ts';
 import type { Application } from '../src/types.ts';
@@ -242,7 +243,7 @@ test('DELETE on a missing id returns 404', async () => {
   assert.equal(res.statusCode, 404);
 });
 
-test('CSV export returns a header, all rows, and escapes special characters', async () => {
+test('CSV export returns a human-readable header and escapes special characters', async () => {
   await createSample({ company: 'Normal Co', platform_job_id: 'csv1' });
   await createSample({ company: 'Comma, Inc', platform_job_id: 'csv2', notes: 'He said "hi"\nnew line' });
 
@@ -253,16 +254,95 @@ test('CSV export returns a header, all rows, and escapes special characters', as
 
   const body = res.body;
   const header = body.split('\r\n')[0];
-  assert.equal(header.split(',')[0], 'id');
-  assert.match(header, /company/);
-  // Comma-containing and quote-containing fields must be quoted/escaped.
+  // Curated, human-readable columns (Issue #16) — no raw internal id,
+  // resume_version_id, or created_at/updated_at bookkeeping columns.
+  assert.equal(header.split(',')[0], 'Date Applied');
+  assert.match(header, /Company/);
+  assert.match(header, /Match Rating/);
+  assert.doesNotMatch(header, /^id,/);
+  assert.doesNotMatch(header, /resume_version_id/);
+  // Comma-containing and quote-containing fields must still be quoted/escaped.
   assert.match(body, /"Comma, Inc"/);
   assert.match(body, /"He said ""hi""/);
+});
+
+test('CSV export appends a summary section with status/platform breakdowns and response rate', async () => {
+  await createSample({ platform: 'indeed', platform_job_id: 'sum1', status: 'applied' });
+  await createSample({ platform: 'linkedin', platform_job_id: 'sum2', status: 'interviewing' });
+  await createSample({ platform: 'linkedin', platform_job_id: 'sum3', status: 'rejected' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  const body = res.body;
+
+  assert.match(body, /SUMMARY/);
+  assert.match(body, /Total Applications,3/);
+  assert.match(body, /Applied,1/);
+  assert.match(body, /Interviewing,1/);
+  assert.match(body, /Rejected,1/);
+  assert.match(body, /Indeed,1/);
+  assert.match(body, /LinkedIn,2/);
+  // 2 of 3 are response-eligible outcomes (interviewing/rejected) out of 3
+  // eligible rows (none pending_confirmation) = 66.7%.
+  assert.match(body, /Response Rate,66\.7%/);
+  assert.match(body, /Applications per Week/);
+  assert.match(body, /Tailoring Insights/);
+  assert.match(body, /Applications with Tailored Resume,0/);
+  assert.match(body, /Average Match Rating,N\/A/);
 });
 
 test('export.csv is not shadowed by the :id route', async () => {
   // Ensures route ordering: export.csv must resolve to the CSV handler, not GET /:id 400.
   const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  assert.equal(res.statusCode, 200);
+});
+
+test('XLSX export returns a valid workbook with header row and data rows', async () => {
+  await createSample({ company: 'Normal Co', platform_job_id: 'xlsx1', status: 'applied' });
+  await createSample({ company: 'Comma, Inc', platform_job_id: 'xlsx2', status: 'interviewing' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.xlsx' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(
+    res.headers['content-type'],
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+  assert.match(res.headers['content-disposition'] as string, /attachment/);
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(res.rawPayload);
+
+  const sheet = workbook.getWorksheet('Applications');
+  assert.ok(sheet, 'Applications sheet is present');
+  assert.equal(sheet!.getRow(1).getCell(1).value, 'Date Applied');
+  assert.equal(sheet!.getRow(1).getCell(2).value, 'Company');
+  // header row + 2 data rows
+  assert.equal(sheet!.rowCount, 3);
+  const companies = [sheet!.getRow(2).getCell(2).value, sheet!.getRow(3).getCell(2).value];
+  assert.ok(companies.includes('Normal Co'));
+  assert.ok(companies.includes('Comma, Inc'));
+
+  const insights = workbook.getWorksheet('Insights');
+  assert.ok(insights, 'Insights sheet is present');
+  assert.equal(insights!.getCell(1, 1).value, 'Applyt — Application Insights');
+});
+
+test('XLSX export builds a valid workbook with no applications', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/export.xlsx' });
+  assert.equal(res.statusCode, 200);
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(res.rawPayload);
+
+  const sheet = workbook.getWorksheet('Applications');
+  assert.ok(sheet, 'Applications sheet is present even with zero rows');
+  assert.equal(sheet!.rowCount, 1); // header row only
+
+  const insights = workbook.getWorksheet('Insights');
+  assert.equal(insights!.getCell(3, 2).value, 0); // Total Applications
+});
+
+test('export.xlsx is not shadowed by the :id route', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/export.xlsx' });
   assert.equal(res.statusCode, 200);
 });
 
