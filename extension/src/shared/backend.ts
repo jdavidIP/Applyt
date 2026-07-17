@@ -92,3 +92,21 @@ export async function tailorApplication(
   if (!res.ok) throw new Error(await errorDetail(res));
   return (await res.json()) as ResumeVersionResult;
 }
+
+export type ResumeDownloadFormat = 'pdf' | 'docx' | 'txt';
+
+// Mirrors dashboard/src/api.ts's downloadResumeVersion — same server-side
+// render endpoint, so the popup can offer the same PDF/Word/txt downloads
+// right after generating, without needing to open the dashboard.
+export async function downloadResumeVersion(
+  applicationId: number,
+  versionId: number,
+  format: ResumeDownloadFormat,
+): Promise<Blob> {
+  const base = await getBackendBaseUrl();
+  const res = await fetch(
+    `${base}/applications/${applicationId}/resume-versions/${versionId}/download?format=${format}`,
+  );
+  if (!res.ok) throw new Error(await errorDetail(res));
+  return res.blob();
+}

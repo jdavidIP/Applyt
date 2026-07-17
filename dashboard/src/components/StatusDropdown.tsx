@@ -7,11 +7,27 @@ interface Props {
   disabled?: boolean;
 }
 
-// Inline status selector used in each table row. Emits a PATCH via onChange.
+// Full literal class names (not a template-literal `status-${value}`) so
+// Tailwind's content scanner — which only finds classes it can see as static
+// strings in source — doesn't tree-shake these out of the compiled CSS.
+const STATUS_CLASS: Record<Status, string> = {
+  applied: 'status-applied',
+  pending_confirmation: 'status-pending_confirmation',
+  interviewing: 'status-interviewing',
+  offer: 'status-offer',
+  rejected: 'status-rejected',
+  ghosted: 'status-ghosted',
+  stale: 'status-stale',
+};
+
+// Inline status selector used in each table row. Still a native <select> for
+// full keyboard/a11y support, but styled to look like the design system's
+// status pill badge (appearance-none removes the native chrome) rather than
+// the old plain unstyled dropdown.
 export function StatusDropdown({ value, onChange, disabled }: Props) {
   return (
     <select
-      className={`status-select status-${value}`}
+      className={`badge ${STATUS_CLASS[value]} appearance-none cursor-pointer border-0 pr-6 disabled:cursor-not-allowed disabled:opacity-55`}
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value as Status)}

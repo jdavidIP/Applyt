@@ -1,9 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  IconChevronDown,
+  IconCheck,
+  IconCopy,
+  IconFileTypePdf,
+  IconFileTypeDocx,
+  IconFileText,
+  IconStar,
+  IconStarFilled,
+  IconSparkles,
+  IconBulb,
+} from '@tabler/icons-react';
 import { api } from '../api';
 import { formatDate } from '../labels';
 import { triggerBlobDownload } from '../download';
 import { parseTailoredResume } from '../tailoredResume';
 import type { Application, ResumeVersion, TailorEstimate, ResumeDownloadFormat } from '../types';
+import { Modal } from './Modal';
 
 // Strips characters that aren't filesystem-safe on Windows/macOS/Linux,
 // collapsing runs of them to a single hyphen.
@@ -11,23 +24,28 @@ function sanitizeFilenamePart(value: string): string {
   return value.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'resume';
 }
 
-const DOWNLOAD_LABELS: Record<ResumeDownloadFormat, string> = {
-  pdf: 'Download PDF',
-  docx: 'Download Word',
-  txt: 'Download .txt',
+const DOWNLOAD_META: Record<ResumeDownloadFormat, { label: string; icon: typeof IconFileTypePdf }> = {
+  pdf: { label: 'PDF', icon: IconFileTypePdf },
+  docx: { label: 'Word', icon: IconFileTypeDocx },
+  txt: { label: 'txt', icon: IconFileText },
 };
 
-// Renders the 0–5 match rating as filled/empty stars plus an "(N/5)" label.
+// Renders the 0–5 match rating as filled/empty star icons plus an "N/5 Match Rating" label.
 function MatchStars({ rating }: { rating: number }) {
   const filled = Math.max(0, Math.min(5, rating));
   return (
-    <span className="match-stars" aria-label={`Match rating ${filled} out of 5`}>
-      <span className="match-stars-glyphs" aria-hidden>
-        {'★'.repeat(filled)}
-        {'☆'.repeat(5 - filled)}
-      </span>
-      <span className="match-stars-label">{filled}/5</span>
-    </span>
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-0.5" aria-label={`Match rating ${filled} out of 5`}>
+        {Array.from({ length: 5 }, (_, i) =>
+          i < filled ? (
+            <IconStarFilled key={i} size={18} className="text-amber-800" />
+          ) : (
+            <IconStar key={i} size={18} className="text-matcha-200" />
+          ),
+        )}
+      </div>
+      <span className="font-medium text-amber-800">{filled}/5 Match Rating</span>
+    </div>
   );
 }
 
@@ -86,6 +104,17 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [includeMatchRating, setIncludeMatchRating] = useState(true);
   const [includeSuggestions, setIncludeSuggestions] = useState(true);
   const [targetOnePage, setTargetOnePage] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!optionsOpen) return;
+    const onClickAway = (e: MouseEvent) => {
+      if (optionsRef.current && !optionsRef.current.contains(e.target as Node)) setOptionsOpen(false);
+    };
+    document.addEventListener('mousedown', onClickAway);
+    return () => document.removeEventListener('mousedown', onClickAway);
+  }, [optionsOpen]);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
 
@@ -191,138 +220,160 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     }
   }
 
+  const optionRows: { label: string; checked: boolean; onToggle: () => void }[] = [
+    { label: 'Include match rating', checked: includeMatchRating, onToggle: () => setIncludeMatchRating((v) => !v) },
+    {
+      label: 'Include interview & cover-letter suggestions',
+      checked: includeSuggestions,
+      onToggle: () => setIncludeSuggestions((v) => !v),
+    },
+    { label: 'Target one page', checked: targetOnePage, onToggle: () => setTargetOnePage((v) => !v) },
+  ];
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <h2>
-          Tailor resume — {application.title} at {application.company}
-        </h2>
-
-        {!hasJobDescription && (
-          <p className="banner banner-warn">
-            This application has no job description yet. Add one via Edit before tailoring.
-          </p>
-        )}
-
-        <div className="tailor-options">
-          <label>
-            <input
-              type="checkbox"
-              checked={includeMatchRating}
-              onChange={(e) => setIncludeMatchRating(e.target.checked)}
-              disabled={generating}
-            />
-            Include match rating
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={includeSuggestions}
-              onChange={(e) => setIncludeSuggestions(e.target.checked)}
-              disabled={generating}
-            />
-            Include interview &amp; cover-letter suggestions
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={targetOnePage}
-              onChange={(e) => setTargetOnePage(e.target.checked)}
-              disabled={generating}
-            />
-            Target one page (may trim less relevant content to fit)
-          </label>
+    <Modal
+      title={
+        <span className="flex items-center gap-2">
+          <IconSparkles size={18} className="text-matcha-400" />
+          {`Tailor resume — ${application.title} at ${application.company}`}
+        </span>
+      }
+      wide
+      onClose={onClose}
+      footer={
+        <button type="button" className="btn-ghost px-6 py-2 text-sm" onClick={onClose}>
+          Close
+        </button>
+      }
+    >
+      {!hasJobDescription && (
+        <div className="bg-amber-100 text-amber-800 rounded-xl p-3.5 text-[13px] mb-4">
+          This application has no job description yet. Add one via Edit before tailoring.
         </div>
+      )}
 
-        <div className="tailor-actions">
-          <button
-            className="btn btn-primary"
-            onClick={() => void handleGenerate()}
-            disabled={generating || !hasJobDescription}
-          >
-            {generating ? 'Generating…' : versions.length ? 'Generate new version' : 'Tailor for this job'}
-          </button>
-          {versions.length > 0 && (
-            <span className="muted-note">{versions.length} version(s) saved</span>
-          )}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-4">
+          <div className="relative flex items-center" ref={optionsRef}>
+            <button
+              type="button"
+              onClick={() => void handleGenerate()}
+              disabled={generating || !hasJobDescription}
+              className="bg-matcha-400 hover:bg-matcha-600 disabled:opacity-55 disabled:cursor-not-allowed text-white font-medium text-sm px-6 py-2.5 rounded-l-lg transition-colors flex items-center gap-2"
+            >
+              {generating ? 'Generating…' : versions.length ? 'Generate new version' : 'Tailor for this job'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOptionsOpen((v) => !v)}
+              aria-label="Tailoring options"
+              className="bg-matcha-400 hover:bg-matcha-600 text-white px-2 py-2.5 rounded-r-lg border-l border-white/20 transition-colors flex items-center"
+            >
+              <IconChevronDown size={18} />
+            </button>
+            {optionsOpen && (
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white border-[0.5px] border-matcha-200 rounded-xl z-10 py-1.5">
+                {optionRows.map((row) => (
+                  <div
+                    key={row.label}
+                    onClick={row.onToggle}
+                    className="px-4 py-2 hover:bg-matcha-50 cursor-pointer flex justify-between items-center transition-colors"
+                  >
+                    <span className="text-ink">{row.label}</span>
+                    {row.checked ? <IconCheck size={18} className="text-matcha-600" /> : <div className="w-[18px]" />}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <span className="text-ink-soft text-[11px]">{versions.length} version(s) saved</span>
         </div>
+        {estimate && <p className="text-ink-soft text-[10px] italic">{estimateSummary(estimate)}</p>}
+      </div>
 
-        {estimate && <p className="muted-note tailor-estimate">{estimateSummary(estimate)}</p>}
+      {error && <p className="text-rose-800 text-[13px] mt-3">{error}</p>}
 
-        {error && <p className="form-error">{error}</p>}
-
-        {selected && sections && (
-          <div className="tailor-output">
-            <div className="tailor-output-header">
-              <span className="stat-label">
+      {selected && sections && (
+        <div className="border-t border-matcha-200 pt-6 mt-6 flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">
                 {selected.ai_provider} · {formatDate(selected.created_at)}
               </span>
-              <div className="tailor-output-actions">
-                <button className="btn btn-secondary btn-sm" onClick={() => void handleCopy()}>
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-                {(['pdf', 'docx', 'txt'] as const).map((format) => (
+              <span className="text-[10px] text-ink-soft">{usageSummary(selected)}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap"
+                onClick={() => void handleCopy()}
+              >
+                <IconCopy size={14} />
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+              {(['pdf', 'docx', 'txt'] as const).map((format) => {
+                const { label, icon: Icon } = DOWNLOAD_META[format];
+                return (
                   <button
                     key={format}
-                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-55"
                     onClick={() => void handleDownload(format)}
                     disabled={downloading !== null}
                   >
-                    {downloading === format ? 'Downloading…' : DOWNLOAD_LABELS[format]}
+                    <Icon size={14} />
+                    {downloading === format ? '…' : label}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-            <p className="tailor-usage">{usageSummary(selected)}</p>
-
-            {(sections.matchRating !== null || sections.matchJustification) && (
-              <div className="tailor-match">
-                <div className="tailor-section-head">
-                  <span className="stat-label">Match</span>
-                  {sections.matchRating !== null && <MatchStars rating={sections.matchRating} />}
-                </div>
-                {sections.matchJustification && (
-                  <div className="tailor-section-body">{sections.matchJustification}</div>
-                )}
-              </div>
-            )}
-
-            <span className="stat-label">Tailored resume</span>
-            <textarea readOnly value={sections.resume} rows={16} />
-
-            {sections.suggestions && (
-              <div className="tailor-suggestions">
-                <span className="stat-label">Interview &amp; cover-letter suggestions</span>
-                <div className="tailor-section-body">{sections.suggestions}</div>
-              </div>
-            )}
           </div>
-        )}
 
-        {versions.length > 1 && (
-          <div className="version-list">
-            <span className="stat-label">Previous versions</span>
-            <ul>
-              {versions.map((v) => (
-                <li key={v.id}>
-                  <button
-                    className={`btn btn-ghost btn-sm ${selected?.id === v.id ? 'is-active' : ''}`}
-                    onClick={() => setSelected(v)}
-                  >
-                    {v.ai_provider} · {formatDate(v.created_at)}
-                  </button>
-                </li>
-              ))}
-            </ul>
+          {(sections.matchRating !== null || sections.matchJustification) && (
+            <div className="card p-4 flex flex-col gap-3">
+              {sections.matchRating !== null && <MatchStars rating={sections.matchRating} />}
+              {sections.matchJustification && (
+                <p className="text-ink leading-relaxed m-0">{sections.matchJustification}</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">Tailored resume</label>
+            <textarea
+              readOnly
+              value={sections.resume}
+              rows={16}
+              className="w-full card p-4 font-mono text-xs leading-relaxed focus:outline-none bg-matcha-50/20"
+            />
           </div>
-        )}
 
-        <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
+          {sections.suggestions && (
+            <div className="card p-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2 font-medium text-matcha-800">
+                <IconBulb size={16} />
+                <span>Suggestions &amp; Interview Prep</span>
+              </div>
+              <div className="text-ink leading-relaxed whitespace-pre-wrap">{sections.suggestions}</div>
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+      )}
+
+      {versions.length > 1 && (
+        <div className="flex flex-wrap gap-2 pt-4">
+          {versions.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setSelected(v)}
+              className={`filter-chip ${selected?.id === v.id ? 'filter-chip-active' : 'filter-chip-inactive'}`}
+            >
+              {v.ai_provider} · {formatDate(v.created_at)}
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }

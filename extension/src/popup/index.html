@@ -3,213 +3,128 @@
   <head>
     <meta charset="UTF-8" />
     <title>Applyt</title>
-    <style>
-      :root {
-        --green: #2e7d32;
-        --green-dark: #256628;
-        --border: #e2e5ea;
-        --muted: #667085;
-        --text: #1a1a1a;
-        --amber: #f59e0b;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-        width: 440px;
-        max-height: 560px;
-        overflow-y: auto;
-        margin: 0;
-        padding: 16px;
-        color: var(--text);
-        font-size: 13px;
-      }
-      .header {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        margin-bottom: 10px;
-      }
-      h1 {
-        font-size: 15px;
-        margin: 0;
-      }
-      a.link {
-        font-size: 12px;
-        color: var(--green);
-        text-decoration: none;
-      }
-      a.link:hover {
-        text-decoration: underline;
-      }
-      .status {
-        font-size: 13px;
-        line-height: 1.45;
-        color: var(--muted);
-      }
-      .status.error {
-        color: #b42318;
-      }
-      .job {
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 10px 12px;
-        margin-bottom: 12px;
-      }
-      .job-title {
-        font-weight: 600;
-        font-size: 14px;
-      }
-      .job-company {
-        color: var(--muted);
-        margin-top: 2px;
-      }
-      .controls {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        margin-bottom: 12px;
-      }
-      .controls label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-      }
-      .hint {
-        margin: 0;
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.4;
-      }
-      button.btn-primary {
-        margin-top: 2px;
-        padding: 9px 0;
-        background: var(--green);
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      button.btn-primary:hover:not(:disabled) {
-        background: var(--green-dark);
-      }
-      button:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
-      }
-      button.btn-sm {
-        padding: 3px 10px;
-        font-size: 12px;
-        background: #fff;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        cursor: pointer;
-      }
-      .section {
-        margin-bottom: 12px;
-      }
-      .section-label {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--muted);
-        margin-bottom: 4px;
-      }
-      .section-body {
-        white-space: pre-wrap;
-        line-height: 1.5;
-      }
-      .tailor-match,
-      .tailor-suggestions {
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 10px 12px;
-        background: #fafbfc;
-      }
-      .stars {
-        color: var(--amber);
-        letter-spacing: 1px;
-        font-weight: 400;
-      }
-      .stars .stars-count {
-        color: var(--muted);
-        font-size: 11px;
-        margin-left: 6px;
-        letter-spacing: normal;
-      }
-      textarea#resume {
-        width: 100%;
-        font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
-        font-size: 12px;
-        line-height: 1.5;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 8px;
-        resize: vertical;
-      }
-      .usage {
-        margin: 0;
-        font-size: 11px;
-        color: var(--muted);
-      }
-    </style>
+    <link rel="stylesheet" href="./style.css" />
   </head>
-  <body>
-    <div class="header">
-      <h1>Applyt</h1>
-      <a class="link" id="open-dashboard" href="#">Dashboard →</a>
+  <body class="w-[440px] max-h-[560px] overflow-y-auto m-0 bg-cream text-ink">
+    <div class="flex items-baseline justify-between p-4 pb-2.5">
+      <div class="flex items-center gap-1.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px] text-matcha-400">
+          <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" />
+          <path d="M9 12l2 2l4 -4" />
+        </svg>
+        <h1 class="text-[15px] font-medium m-0 leading-tight text-ink">Applyt</h1>
+      </div>
+      <a class="text-[12px] text-matcha-600 no-underline hover:underline flex items-center gap-0.5" id="open-dashboard" href="#">
+        Dashboard
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5">
+          <path d="M17 7l-10 10" />
+          <path d="M8 7l9 0l0 9" />
+        </svg>
+      </a>
     </div>
 
-    <div class="status" id="status">Checking this page…</div>
+    <div class="px-4 pb-4">
+      <div class="text-[13px] leading-[1.45] text-ink-soft" id="status">Checking this page…</div>
 
-    <div class="job" id="job" hidden>
-      <div class="job-title" id="job-title"></div>
-      <div class="job-company" id="job-company"></div>
-    </div>
+      <div class="bg-white border-[0.5px] border-matcha-200 rounded-xl p-3 mt-3" id="job" hidden>
+        <div class="font-medium text-[14px] leading-tight text-ink" id="job-title"></div>
+        <div class="text-ink-soft mt-0.5 text-[12px]" id="job-company"></div>
+      </div>
 
-    <div class="controls" id="controls" hidden>
-      <label><input type="checkbox" id="opt-rating" checked /> Match rating &amp; justification</label>
-      <label
-        ><input type="checkbox" id="opt-suggestions" checked /> Interview &amp; cover-letter
-        suggestions</label
-      >
-      <label
-        ><input type="checkbox" id="opt-one-page" /> Target one page (may trim less relevant
-        content to fit)</label
-      >
-      <button class="btn-primary" id="tailor-btn">Tailor for this job</button>
-      <p class="hint" id="controls-hint" hidden></p>
-    </div>
+      <div id="controls" class="mt-3" hidden>
+       <div class="flex flex-col gap-3">
+        <label class="flex items-center justify-between cursor-pointer">
+          <span class="text-[13px] text-ink">Match rating &amp; justification</span>
+          <div class="relative flex items-center">
+            <input type="checkbox" id="opt-rating" class="sr-only" checked />
+            <div class="toggle-track w-9 h-5 bg-matcha-100 border-[0.5px] border-matcha-200 rounded-full">
+              <div class="toggle-thumb absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full border-[0.5px] border-matcha-200"></div>
+            </div>
+          </div>
+        </label>
+        <label class="flex items-center justify-between cursor-pointer">
+          <span class="text-[13px] text-ink">Interview &amp; cover-letter suggestions</span>
+          <div class="relative flex items-center">
+            <input type="checkbox" id="opt-suggestions" class="sr-only" checked />
+            <div class="toggle-track w-9 h-5 bg-matcha-100 border-[0.5px] border-matcha-200 rounded-full">
+              <div class="toggle-thumb absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full border-[0.5px] border-matcha-200"></div>
+            </div>
+          </div>
+        </label>
+        <label class="flex items-center justify-between cursor-pointer">
+          <span class="text-[13px] text-ink"
+            >Target one page <span class="text-[11px] text-ink-soft block">(may trim less relevant content to fit)</span></span
+          >
+          <div class="relative flex items-center">
+            <input type="checkbox" id="opt-one-page" class="sr-only" />
+            <div class="toggle-track w-9 h-5 bg-matcha-100 border-[0.5px] border-matcha-200 rounded-full">
+              <div class="toggle-thumb absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full border-[0.5px] border-matcha-200"></div>
+            </div>
+          </div>
+        </label>
+        <button
+          class="bg-matcha-400 hover:bg-matcha-600 text-white border-none rounded-lg py-2.5 mt-0.5 text-[13px] font-medium cursor-pointer w-full transition-colors disabled:opacity-55 disabled:cursor-not-allowed"
+          id="tailor-btn"
+        >
+          Tailor for this job
+        </button>
+        <p class="m-0 text-ink-soft text-[12px] leading-[1.4]" id="controls-hint" hidden></p>
+       </div>
+      </div>
 
-    <div id="results" hidden>
-      <div class="section tailor-match" id="match" hidden>
-        <div class="section-label">
-          <span>Match <span class="stars" id="match-stars"></span></span>
+      <div id="results" class="mt-3" hidden>
+       <div class="flex flex-col gap-3">
+        <div class="bg-white border-[0.5px] border-matcha-200 rounded-xl p-3" id="match" hidden>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-medium uppercase tracking-wider text-ink-soft">Match</span>
+            <span id="match-stars" class="flex items-center gap-1.5"></span>
+          </div>
+          <div class="text-[13px] leading-relaxed text-ink" id="match-justification"></div>
         </div>
-        <div class="section-body" id="match-justification"></div>
-      </div>
 
-      <div class="section">
-        <div class="section-label">
-          <span>Tailored resume</span>
-          <button class="btn-sm" id="copy-btn">Copy</button>
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-medium uppercase tracking-wider text-ink-soft">Tailored resume</span>
+            <div class="flex flex-wrap gap-1.5 justify-end">
+              <button class="px-2 py-1 bg-matcha-100 text-matcha-800 text-[11px] font-medium rounded-lg hover:bg-matcha-200 transition-colors" id="copy-btn">
+                Copy
+              </button>
+              <button class="px-2 py-1 bg-matcha-100 text-matcha-800 text-[11px] font-medium rounded-lg hover:bg-matcha-200 transition-colors flex items-center gap-1" id="download-pdf-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3">
+                  <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M5 12v-7a2 2 0 0 1 2 -2h7l5 5v4" /><path d="M5 18h1.5a1.5 1.5 0 0 0 0 -3h-1.5v6" /><path d="M17 18h2" /><path d="M20 15h-3v6" /><path d="M11 15v6h1a2 2 0 0 0 2 -2v-2a2 2 0 0 0 -2 -2h-1" />
+                </svg>
+                PDF
+              </button>
+              <button class="px-2 py-1 bg-matcha-100 text-matcha-800 text-[11px] font-medium rounded-lg hover:bg-matcha-200 transition-colors flex items-center gap-1" id="download-docx-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3">
+                  <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M5 12v-7a2 2 0 0 1 2 -2h7l5 5v4" /><path d="M2 15v6h1a2 2 0 0 0 2 -2v-2a2 2 0 0 0 -2 -2h-1" /><path d="M17 16.5a1.5 1.5 0 0 0 -3 0v3a1.5 1.5 0 0 0 3 0" /><path d="M9.5 15a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1 -3 0v-3a1.5 1.5 0 0 1 1.5 -1.5" /><path d="M19.5 15l3 6" /><path d="M19.5 21l3 -6" />
+                </svg>
+                Word
+              </button>
+              <button class="px-2 py-1 bg-matcha-100 text-matcha-800 text-[11px] font-medium rounded-lg hover:bg-matcha-200 transition-colors flex items-center gap-1" id="download-txt-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3">
+                  <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /><path d="M9 9l1 0" /><path d="M9 13l6 0" /><path d="M9 17l6 0" />
+                </svg>
+                TXT
+              </button>
+            </div>
+          </div>
+          <textarea
+            id="resume"
+            readonly
+            rows="12"
+            class="w-full bg-matcha-50/40 border-[0.5px] border-matcha-200 rounded-lg p-2.5 text-[12px] font-mono leading-relaxed resize-y focus:outline-none"
+          ></textarea>
         </div>
-        <textarea id="resume" readonly rows="12"></textarea>
-      </div>
 
-      <div class="section tailor-suggestions" id="suggestions" hidden>
-        <div class="section-label"><span>Interview &amp; cover-letter suggestions</span></div>
-        <div class="section-body" id="suggestions-body"></div>
-      </div>
+        <div class="bg-white border-[0.5px] border-matcha-200 rounded-xl p-3" id="suggestions" hidden>
+          <span class="text-[11px] font-medium uppercase tracking-wider text-ink-soft block mb-1.5">Interview &amp; cover-letter suggestions</span>
+          <div class="text-[13px] leading-relaxed text-ink whitespace-pre-wrap" id="suggestions-body"></div>
+        </div>
 
-      <p class="usage" id="usage"></p>
+        <p class="m-0 text-[11px] text-ink-soft pt-2 border-t border-matcha-200" id="usage"></p>
+       </div>
+      </div>
     </div>
 
     <script type="module" src="./main.ts"></script>

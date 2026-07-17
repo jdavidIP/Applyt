@@ -109,7 +109,7 @@ test('POST with an existing platform+platform_job_id updates instead of duplicat
   assert.equal(updated.status, 'applied'); // promoted from pending_confirmation
 
   const all = await app.inject({ method: 'GET', url: '/applications' });
-  assert.equal((all.json() as Application[]).length, 1); // no duplicate
+  assert.equal((all.json() as { items: Application[] }).items.length, 1); // no duplicate
 });
 
 test('POST re-detect never downgrades applied → pending_confirmation', async () => {
@@ -167,7 +167,7 @@ test('POST without platform_job_id always inserts (no dedupe)', async () => {
     payload: { company: 'Solo Inc', title: 'Designer' },
   });
   const all = await app.inject({ method: 'GET', url: '/applications' });
-  assert.equal((all.json() as Application[]).length, 2);
+  assert.equal((all.json() as { items: Application[] }).items.length, 2);
 });
 
 test('GET lists applications and filters by platform and status', async () => {
@@ -175,15 +175,69 @@ test('GET lists applications and filters by platform and status', async () => {
   await createSample({ platform: 'linkedin', status: 'interviewing', apply_method: 'in_platform' });
 
   const all = await app.inject({ method: 'GET', url: '/applications' });
-  assert.equal((all.json() as Application[]).length, 2);
+  const allBody = all.json() as { items: Application[]; total: number };
+  assert.equal(allBody.items.length, 2);
+  assert.equal(allBody.total, 2);
 
   const byPlatform = await app.inject({ method: 'GET', url: '/applications?platform=linkedin' });
-  const rows = byPlatform.json() as Application[];
+  const rows = (byPlatform.json() as { items: Application[] }).items;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].platform, 'linkedin');
 
   const byStatus = await app.inject({ method: 'GET', url: '/applications?status=applied' });
-  assert.equal((byStatus.json() as Application[]).length, 1);
+  assert.equal((byStatus.json() as { items: Application[] }).items.length, 1);
+});
+
+test('GET paginates results with page/pageSize and reports total', async () => {
+  for (let i = 0; i < 5; i++) {
+    await createSample({ platform_job_id: `page-${i}`, company: `Co${i}` });
+  }
+
+  const firstPage = await app.inject({ method: 'GET', url: '/applications?pageSize=2&page=1' });
+  const firstBody = firstPage.json() as { items: Application[]; total: number; page: number; pageSize: number };
+  assert.equal(firstBody.items.length, 2);
+  assert.equal(firstBody.total, 5);
+  assert.equal(firstBody.page, 1);
+  assert.equal(firstBody.pageSize, 2);
+
+  const secondPage = await app.inject({ method: 'GET', url: '/applications?pageSize=2&page=2' });
+  const secondBody = secondPage.json() as { items: Application[] };
+  assert.equal(secondBody.items.length, 2);
+  // No overlap between pages.
+  const firstIds = new Set(firstBody.items.map((a) => a.id));
+  for (const row of secondBody.items) assert.equal(firstIds.has(row.id), false);
+
+  const lastPage = await app.inject({ method: 'GET', url: '/applications?pageSize=2&page=3' });
+  assert.equal((lastPage.json() as { items: Application[] }).items.length, 1); // 5 total, 2 pages of 2 + 1 remainder
+
+  // A page number past the end (e.g. left over after a delete shrank the
+  // result set) is clamped to the last valid page instead of returning an
+  // empty result with no way back.
+  const pastEnd = await app.inject({ method: 'GET', url: '/applications?pageSize=2&page=10' });
+  const pastEndBody = pastEnd.json() as { items: Application[]; total: number; page: number };
+  assert.equal(pastEndBody.page, 3); // clamped to the last page (5 total, pageSize 2 -> 3 pages)
+  assert.equal(pastEndBody.items.length, 1); // same content as requesting page=3 directly
+  assert.equal(pastEndBody.total, 5); // total still reflects the full filtered set
+});
+
+test('GET clamps page to 1 when the filtered result set is empty', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications?status=offer&page=5' });
+  const body = res.json() as { items: Application[]; total: number; page: number };
+  assert.equal(body.page, 1);
+  assert.equal(body.items.length, 0);
+  assert.equal(body.total, 0);
+});
+
+test('GET defaults to page 1 with pageSize 25 when unspecified', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications' });
+  const body = res.json() as { page: number; pageSize: number };
+  assert.equal(body.page, 1);
+  assert.equal(body.pageSize, 25);
+});
+
+test('GET rejects a pageSize above the 100 cap', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications?pageSize=101' });
+  assert.equal(res.statusCode, 400);
 });
 
 test('GET rejects an invalid filter enum value', async () => {
@@ -264,6 +318,23 @@ test('CSV export returns a human-readable header and escapes special characters'
   // Comma-containing and quote-containing fields must still be quoted/escaped.
   assert.match(body, /"Comma, Inc"/);
   assert.match(body, /"He said ""hi""/);
+});
+
+test('CSV export neutralizes leading formula characters to prevent CSV injection', async () => {
+  await createSample({
+    company: '=cmd|"/c calc"!A1',
+    title: '+HYPERLINK("http://evil")',
+    platform_job_id: 'formula1',
+    notes: '-2+3',
+    job_description: '@SUM(A1)',
+  });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/export.csv' });
+  const body = res.body;
+  assert.match(body, /'=cmd/);
+  assert.match(body, /'\+HYPERLINK/);
+  assert.match(body, /'-2\+3/);
+  assert.match(body, /'@SUM/);
 });
 
 test('CSV export appends a summary section with status/platform breakdowns and response rate', async () => {
@@ -404,9 +475,11 @@ test('DELETE /applications?status=X bulk-deletes only matching rows', async () =
   assert.equal(res.statusCode, 200);
   assert.equal((res.json() as { deleted: number }).deleted, 2);
 
-  const remaining = (await app.inject({ method: 'GET', url: '/applications' })).json() as Application[];
-  assert.equal(remaining.length, 1);
-  assert.equal(remaining[0].status, 'applied');
+  const remaining = (await app.inject({ method: 'GET', url: '/applications' })).json() as {
+    items: Application[];
+  };
+  assert.equal(remaining.items.length, 1);
+  assert.equal(remaining.items[0].status, 'applied');
 });
 
 test('DELETE /applications rejects an invalid status enum value', async () => {

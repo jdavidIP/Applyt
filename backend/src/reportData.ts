@@ -28,6 +28,15 @@ export const APPLY_METHOD_LABELS: Record<ApplyMethod, string> = {
   manual: "Manual",
 };
 
+// Neutralize CSV/XLSX formula injection: a cell value starting with =, +, -,
+// or @ is interpreted as a formula by Excel/Sheets on open. company/title/
+// notes/job_description come from job postings the extension passively
+// scrapes, so they aren't fully trusted even though the export only ever
+// lands on the same user's own machine.
+export function neutralizeFormulaPrefix(value: string): string {
+  return /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
 // Confirmed-applied statuses that got some kind of outcome, for response-rate
 // purposes (CLAUDE.md §7 Phase 3: "response rate"). 'pending_confirmation' is
 // excluded from the denominator entirely — we don't yet know the application

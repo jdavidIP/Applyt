@@ -36,6 +36,7 @@ import {
   resolveVersionByAppId,
   RESPONSE_STATUSES,
   mondayOf,
+  neutralizeFormulaPrefix,
   type AppVersionInfo,
 } from "../reportData.js";
 import { buildApplicationsWorkbook } from "../xlsxExport.js";
@@ -110,7 +111,7 @@ function mergeStatus(existing: string, incoming: string): string {
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s = String(value);
+  const s = neutralizeFormulaPrefix(String(value));
   // Quote if the field contains a comma, quote, CR or LF; double up embedded quotes.
   if (/[",\r\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
@@ -205,12 +206,13 @@ export default async function applicationsRoutes(
 ): Promise<void> {
   const { db, settings } = opts;
 
-  // GET /applications — list with optional platform/status filter and sort.
+  // GET /applications — list with optional platform/status filter, sort, and
+  // pagination (page/pageSize; defaults 1/25, pageSize capped at 100).
   fastify.get<{ Querystring: ListApplicationsQuery }>(
     "/applications",
     { schema: { querystring: listApplicationsQuerySchema } },
     async (request) => {
-      const { platform, status, sort, order } = request.query;
+      const { platform, status, sort, order, page = 1, pageSize = 25 } = request.query;
       const where: string[] = [];
       const params: Record<string, string> = {};
       if (platform) {
@@ -221,14 +223,30 @@ export default async function applicationsRoutes(
         where.push("status = @status");
         params.status = status;
       }
+      const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "";
       const sortCol =
         sort === "date_last_updated" ? "date_last_updated" : "date_applied";
       const sortDir = order === "asc" ? "ASC" : "DESC";
+
+      const total = (
+        db.prepare(`SELECT COUNT(*) AS count FROM applications${whereSql}`).get(params) as {
+          count: number;
+        }
+      ).count;
+
+      // Clamp to the last valid page so a page number left over from before a
+      // delete/bulk-action shrank the result set doesn't return an empty page.
+      const maxPage = Math.max(1, Math.ceil(total / pageSize));
+      const clampedPage = Math.min(page, maxPage);
+
+      const offset = (clampedPage - 1) * pageSize;
       const sql =
-        `SELECT * FROM applications` +
-        (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
-        ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}`;
-      return db.prepare(sql).all(params) as Application[];
+        `SELECT * FROM applications${whereSql}` +
+        ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}` +
+        ` LIMIT @pageSize OFFSET @offset`;
+      const items = db.prepare(sql).all({ ...params, pageSize, offset }) as Application[];
+
+      return { items, total, page: clampedPage, pageSize };
     },
   );
 

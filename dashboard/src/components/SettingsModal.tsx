@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { IconRefresh, IconCurrencyDollar, IconTrash, IconAlertTriangle, IconEye, IconEyeOff } from '@tabler/icons-react';
 import { api } from '../api';
 import { AI_PROVIDERS, type AiProvider, type ModelPricing, type SettingsInput } from '../types';
 import { checkResumeCompleteness, type MissingField } from '../resumeCompleteness';
+import { Modal } from './Modal';
+import { useToast } from './Toast';
 
 interface Props {
   onClose: () => void;
@@ -41,15 +44,18 @@ function rowsToPricing(rows: PriceRow[]): ModelPricing {
   return out;
 }
 
+const labelClass = 'text-[11px] text-ink-soft font-medium uppercase tracking-wide mb-1.5 block';
+const hintClass = 'text-[11px] text-ink-soft mt-1';
+
 // Phase 4 settings (CLAUDE.md §7): the user's own AI provider, model, API key(s),
 // and base resume. Everything here is stored only in the local backend settings
 // file and is used solely to make the outbound tailoring call to the chosen
 // provider — nothing is sent anywhere else.
 export function SettingsModal({ onClose }: Props) {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const [provider, setProvider] = useState<AiProvider>('anthropic');
   const [model, setModel] = useState('');
@@ -62,6 +68,8 @@ export function SettingsModal({ onClose }: Props) {
   const [completenessWarning, setCompletenessWarning] = useState<MissingField[] | null>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
   const [pricingRows, setPricingRows] = useState<PriceRow[]>([]);
@@ -244,7 +252,6 @@ export function SettingsModal({ onClose }: Props) {
   async function performSave() {
     setSaving(true);
     setError(null);
-    setSaved(false);
     // Key fields are write-only: only send one if the user typed a new value,
     // so leaving it blank preserves the existing (never-displayed) key.
     const input: SettingsInput = {
@@ -262,8 +269,8 @@ export function SettingsModal({ onClose }: Props) {
       setPricingRows(pricingToRows(s.modelPricing));
       setAnthropicKey('');
       setOpenaiKey('');
-      setSaved(true);
       setCompletenessWarning(null);
+      showToast({ tone: 'success', message: 'Settings saved.' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings.');
     } finally {
@@ -291,21 +298,69 @@ export function SettingsModal({ onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form className="modal modal-wide" onClick={(e) => e.stopPropagation()} onSubmit={handleSave}>
-        <h2>Settings</h2>
-        <p className="settings-hint">
-          Your API key and resume are stored only on this machine and are sent only to your chosen
-          AI provider when you tailor a resume.
-        </p>
+    <Modal
+      title="Settings"
+      wide
+      onClose={onClose}
+      onSubmit={handleSave}
+      footer={
+        <>
+          <button type="button" className="btn-ghost px-5 py-2 min-w-[100px]" onClick={onClose} disabled={saving}>
+            Close
+          </button>
+          <button type="submit" className="btn-primary px-6 py-2 min-w-[100px]" disabled={saving || loading}>
+            {saving ? 'Saving…' : 'Save settings'}
+          </button>
+        </>
+      }
+    >
+      <p className={hintClass}>
+        Your API key and resume are stored only on this machine and are sent only to your chosen AI
+        provider when you tailor a resume.
+      </p>
 
-        {loading ? (
-          <p className="empty">Loading…</p>
-        ) : (
-          <div className="form-grid">
+      {completenessWarning && completenessWarning.length > 0 && (
+        <div className="bg-amber-100 p-4 rounded-xl flex items-center justify-between gap-4 mt-4">
+          <div className="flex items-start gap-3">
+            <IconAlertTriangle size={18} stroke={1.75} className="text-amber-800 mt-0.5 shrink-0" />
+            <p className="text-amber-800 leading-tight m-0">
+              We couldn't detect {completenessWarning.map((m) => m.label).join(', ')} in your base
+              resume. Is that missing on purpose, or did we just miss it while checking?
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              className="px-3 py-1.5 text-xs font-medium bg-white/50 hover:bg-white text-amber-800 rounded-lg transition-colors"
+              onClick={() => setCompletenessWarning(null)}
+              disabled={saving}
+            >
+              Let me check
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1.5 text-xs font-medium bg-amber-800 text-white rounded-lg disabled:opacity-55"
+              onClick={() => void performSave()}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Save anyway'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-center text-ink-soft py-6">Loading…</p>
+      ) : (
+        <div className="flex flex-col gap-8 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <label>
-              AI provider
-              <select value={provider} onChange={(e) => setProvider(e.target.value as AiProvider)}>
+              <span className={labelClass}>AI provider</span>
+              <select
+                className="input-field w-full"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as AiProvider)}
+              >
                 {AI_PROVIDERS.map((p) => (
                   <option key={p} value={p}>
                     {PROVIDER_LABELS[p]}
@@ -314,8 +369,9 @@ export function SettingsModal({ onClose }: Props) {
               </select>
             </label>
             <label>
-              Model
+              <span className={labelClass}>Model</span>
               <input
+                className="input-field w-full"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="e.g. claude-sonnet-5 or gpt-4o"
@@ -328,178 +384,186 @@ export function SettingsModal({ onClose }: Props) {
                 ))}
               </datalist>
               {hasKeyForProvider && (
-                <span className="settings-hint" style={{ margin: 0 }}>
+                <p className={hintClass}>
                   {modelsLoading
                     ? 'Loading your account’s models…'
                     : availableModels.length > 0
                       ? `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} available from your account — type to filter, or enter a custom id.`
                       : 'Could not load your account’s model list — enter a model id manually.'}
-                </span>
+                </p>
               )}
             </label>
             <label>
-              Anthropic API key
-              <input
-                type="password"
-                value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
-                placeholder={hasAnthropicKey ? 'configured — leave blank to keep' : 'not set'}
-                autoComplete="off"
-              />
+              <span className={labelClass}>Anthropic API key</span>
+              <div className="relative flex items-center">
+                <input
+                  className="input-field pr-9"
+                  type={showAnthropicKey ? 'text' : 'password'}
+                  value={anthropicKey}
+                  onChange={(e) => setAnthropicKey(e.target.value)}
+                  placeholder={hasAnthropicKey ? 'configured — leave blank to keep' : 'not set'}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAnthropicKey((v) => !v)}
+                  className="absolute right-2.5 text-ink-soft hover:text-ink"
+                  aria-label={showAnthropicKey ? 'Hide API key' : 'Show API key'}
+                >
+                  {showAnthropicKey ? <IconEyeOff size={16} stroke={1.75} /> : <IconEye size={16} stroke={1.75} />}
+                </button>
+              </div>
             </label>
             <label>
-              OpenAI API key
-              <input
-                type="password"
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-                placeholder={hasOpenaiKey ? 'configured — leave blank to keep' : 'not set'}
-                autoComplete="off"
-              />
+              <span className={labelClass}>OpenAI API key</span>
+              <div className="relative flex items-center">
+                <input
+                  className="input-field pr-9"
+                  type={showOpenaiKey ? 'text' : 'password'}
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  placeholder={hasOpenaiKey ? 'configured — leave blank to keep' : 'not set'}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOpenaiKey((v) => !v)}
+                  className="absolute right-2.5 text-ink-soft hover:text-ink"
+                  aria-label={showOpenaiKey ? 'Hide API key' : 'Show API key'}
+                >
+                  {showOpenaiKey ? <IconEyeOff size={16} stroke={1.75} /> : <IconEye size={16} stroke={1.75} />}
+                </button>
+              </div>
             </label>
-            <label className="span-2">
-              Base resume (plain text)
-              <div className="resume-upload-row">
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <label>
+              <span className={labelClass}>Base resume (plain text)</span>
+              <div className="flex items-center gap-3">
                 <input
                   type="file"
                   accept=".pdf,.docx"
                   onChange={(e) => void handleResumeFile(e)}
                   disabled={extracting}
+                  className="text-[13px]"
                 />
-                {extracting && (
-                  <span className="settings-hint" style={{ margin: 0 }}>
-                    Extracting text…
-                  </span>
-                )}
+                {extracting && <span className="text-[11px] text-ink-soft">Extracting text…</span>}
               </div>
-              {extractError && <p className="form-error">{extractError}</p>}
-              <textarea
-                value={baseResume}
-                onChange={(e) => updateBaseResume(e.target.value)}
-                rows={10}
-                placeholder="Paste your resume as plain text…"
-              />
-              <span className="settings-hint" style={{ margin: 0 }}>
-                Uploading a PDF or Word (.docx) file replaces the text above — review and edit
-                before saving.
-              </span>
             </label>
-
-            <div className="span-2 pricing-section">
-              <div className="pricing-header">
-                <span className="stat-label">Model pricing (USD per million tokens)</span>
-                <div className="pricing-header-actions">
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => void syncModelsFromProviders()}
-                    disabled={syncingModels || providersWithKeys.length === 0}
-                    title={
-                      providersWithKeys.length === 0
-                        ? 'Configure an API key for at least one provider first'
-                        : undefined
-                    }
-                  >
-                    {syncingModels ? 'Syncing…' : 'Sync models'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={syncKnownPrices}
-                    disabled={Object.keys(knownPricing).length === 0}
-                  >
-                    Sync known prices
-                  </button>
-                </div>
-              </div>
-              <p className="settings-hint">
-                Used to estimate each tailor's cost. A model not listed here shows no cost. Models
-                are only added via "Sync models", which fetches your current model list from every
-                provider with a key configured — there's no manual add or rename, so this table can
-                never drift from what your account actually offers.{' '}
-                {knownPricingAsOf
-                  ? `"Sync known prices" applies a curated snapshot last verified ${knownPricingAsOf} — always double-check against your provider's current pricing.`
-                  : "Verify against your provider's current pricing."}
-              </p>
-              {syncModelsError && <p className="form-error">{syncModelsError}</p>}
-              <div className="pricing-table">
-                <div className="pricing-row pricing-row-head">
-                  <span>Model</span>
-                  <span>Input /M</span>
-                  <span>Output /M</span>
-                  <span aria-hidden></span>
-                </div>
-                {pricingRows.map((row, i) => (
-                  <div className="pricing-row" key={i}>
-                    <span className="pricing-model-name">{row.model}</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.input}
-                      onChange={(e) => updateRow(i, { input: e.target.value })}
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.output}
-                      onChange={(e) => updateRow(i, { output: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm"
-                      onClick={() => removeRow(i)}
-                      aria-label="Remove model"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {completenessWarning && completenessWarning.length > 0 && (
-          <div className="banner banner-warn">
-            <p style={{ margin: 0 }}>
-              We couldn't detect {completenessWarning.map((m) => m.label).join(', ')} in your base
-              resume. Is that missing on purpose, or did we just miss it while checking?
+            {extractError && <p className="text-rose-800 text-[13px]">{extractError}</p>}
+            <textarea
+              className="input-field min-h-[160px] font-mono text-[12px] leading-relaxed"
+              value={baseResume}
+              onChange={(e) => updateBaseResume(e.target.value)}
+              rows={10}
+              placeholder="Paste your resume as plain text…"
+            />
+            <p className={hintClass}>
+              Uploading a PDF or Word (.docx) file replaces the text above — review and edit before
+              saving.
             </p>
-            <div className="modal-actions" style={{ marginTop: '0.5rem' }}>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => setCompletenessWarning(null)}
-                disabled={saving}
-              >
-                Let me check
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => void performSave()}
-                disabled={saving}
-              >
-                {saving ? 'Saving…' : 'Save anyway'}
-              </button>
+          </div>
+
+          <div className="flex flex-col gap-4 pt-4 border-t border-matcha-100">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className={`${labelClass} mb-0`}>Model pricing (USD per million tokens)</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-ghost px-3 py-1.5 text-xs flex items-center gap-1.5"
+                  onClick={() => void syncModelsFromProviders()}
+                  disabled={syncingModels || providersWithKeys.length === 0}
+                  title={
+                    providersWithKeys.length === 0
+                      ? 'Configure an API key for at least one provider first'
+                      : undefined
+                  }
+                >
+                  <IconRefresh size={14} stroke={1.75} />
+                  {syncingModels ? 'Syncing…' : 'Sync models'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost px-3 py-1.5 text-xs flex items-center gap-1.5"
+                  onClick={syncKnownPrices}
+                  disabled={Object.keys(knownPricing).length === 0}
+                >
+                  <IconCurrencyDollar size={14} stroke={1.75} />
+                  Sync known prices
+                </button>
+              </div>
+            </div>
+            <p className={`${hintClass} mt-0`}>
+              Used to estimate each tailor's cost. A model not listed here shows no cost. Models are
+              only added via "Sync models", which fetches your current model list from every provider
+              with a key configured — there's no manual add or rename, so this table can never drift
+              from what your account actually offers.{' '}
+              {knownPricingAsOf
+                ? `"Sync known prices" applies a curated snapshot last verified ${knownPricingAsOf} — always double-check against your provider's current pricing.`
+                : "Verify against your provider's current pricing."}
+            </p>
+            {syncModelsError && <p className="text-rose-800 text-[13px]">{syncModelsError}</p>}
+            <div className="overflow-hidden rounded-xl border-[0.5px] border-matcha-200">
+              <table className="w-full text-left">
+                <thead className="bg-matcha-50 border-b border-matcha-200">
+                  <tr className="text-[10px] uppercase font-semibold text-ink-soft">
+                    <th className="px-4 py-2.5">Model</th>
+                    <th className="px-4 py-2.5 w-[140px]">Input / 1M</th>
+                    <th className="px-4 py-2.5 w-[140px]">Output / 1M</th>
+                    <th className="px-4 py-2.5 w-[40px] text-center" aria-hidden></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-matcha-100">
+                  {pricingRows.map((row, i) => (
+                    <tr key={i}>
+                      <td className="px-4 py-3 font-mono text-xs">{row.model}</td>
+                      <td className="px-4 py-3">
+                        <div className="relative flex items-center">
+                          <span className="absolute left-3 text-ink-soft text-[11px]">$</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="input-field w-full pl-6 py-1 h-[30px]"
+                            value={row.input}
+                            onChange={(e) => updateRow(i, { input: e.target.value })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="relative flex items-center">
+                          <span className="absolute left-3 text-ink-soft text-[11px]">$</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="input-field w-full pl-6 py-1 h-[30px]"
+                            value={row.output}
+                            onChange={(e) => updateRow(i, { output: e.target.value })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeRow(i)}
+                          aria-label="Remove model"
+                          className="text-ink-soft hover:text-rose-800 transition-colors"
+                        >
+                          <IconTrash size={16} stroke={1.75} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        )}
-
-        {error && <p className="form-error">{error}</p>}
-        {saved && <p className="form-success">Settings saved.</p>}
-
-        <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
-            Close
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={saving || loading}>
-            {saving ? 'Saving…' : 'Save settings'}
-          </button>
         </div>
-      </form>
-    </div>
+      )}
+
+      {error && <p className="text-rose-800 text-[13px] mt-3">{error}</p>}
+    </Modal>
   );
 }
