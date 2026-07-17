@@ -12,6 +12,10 @@ COPY dashboard/package.json ./dashboard/package.json
 RUN npm ci --workspace=@applyt/dashboard --include-workspace-root
 
 COPY dashboard ./dashboard
+# dashboard/tailwind.config.cjs requires ../shared/tailwind-tokens.cjs — the
+# design tokens shared with the extension popup — so it must be present
+# before the build step below.
+COPY shared ./shared
 # API_BASE defaults to '/api' (see dashboard/src/api.ts); nginx proxies it to
 # the backend, so no build-time backend URL is baked in.
 RUN npm run build --workspace=@applyt/dashboard
