@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+}
+
+/* Toggle switch thumb slide (design-system.md: matcha-400 track/white thumb on) */
+.toggle-thumb {
+  transition: transform 0.15s ease;
+}
+input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(1.125rem);
+}
+input:checked + .toggle-track {
+  background-color: #7a9469; /* matcha-400 */
+  border-color: #7a9469;
+}
+
+/* #status toggles this when setStatus(text, isError) is called */
+#status.error {
+  color: #96473f; /* rose-800 */
+}

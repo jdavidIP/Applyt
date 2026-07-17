@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { IconFileSpreadsheet } from '@tabler/icons-react';
 import { api } from '../api';
 
 // Plain anchors to the backend export endpoints; the Content-Disposition
@@ -19,41 +20,29 @@ export function ExportButton() {
   }, [open]);
 
   return (
-    <div className="export-menu" ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
-      <button type="button" className="btn btn-secondary" onClick={() => setOpen((v) => !v)}>
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        className="btn-secondary px-4 py-2 flex items-center gap-2"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <IconFileSpreadsheet size={18} stroke={1.75} />
         Export ▾
       </button>
       {open && (
-        <div
-          className="export-menu-dropdown"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            right: 0,
-            marginTop: '0.25rem',
-            background: 'var(--surface, #fff)',
-            border: '1px solid var(--border, #ddd)',
-            borderRadius: '6px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-            zIndex: 20,
-            minWidth: '200px',
-            overflow: 'hidden',
-          }}
-        >
+        <div className="absolute top-full right-0 mt-1 bg-white border-[0.5px] border-matcha-200 rounded-lg min-w-[200px] overflow-hidden z-20">
           <a
-            className="export-menu-item"
             href={api.exportXlsxUrl()}
             download
-            style={{ display: 'block', padding: '0.5rem 0.75rem', textDecoration: 'none' }}
+            className="block px-3 py-2 text-[13px] text-ink no-underline hover:bg-matcha-50"
             onClick={() => setOpen(false)}
           >
             Export Excel (.xlsx)
           </a>
           <a
-            className="export-menu-item"
             href={api.exportCsvUrl()}
             download
-            style={{ display: 'block', padding: '0.5rem 0.75rem', textDecoration: 'none' }}
+            className="block px-3 py-2 text-[13px] text-ink no-underline hover:bg-matcha-50"
             onClick={() => setOpen(false)}
           >
             Export CSV (.csv)
