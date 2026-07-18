@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconChevronDown,
   IconCheck,
@@ -10,24 +10,32 @@ import {
   IconStarFilled,
   IconSparkles,
   IconBulb,
-} from '@tabler/icons-react';
-import { api } from '../api';
-import { formatDate } from '../labels';
-import { triggerBlobDownload } from '../download';
-import { parseTailoredResume } from '../tailoredResume';
-import type { Application, ResumeVersion, TailorEstimate, ResumeDownloadFormat } from '../types';
-import { Modal } from './Modal';
+} from "@tabler/icons-react";
+import { api } from "../api";
+import { formatDate } from "../labels";
+import { triggerBlobDownload } from "../download";
+import { parseTailoredResume } from "../tailoredResume";
+import type {
+  Application,
+  ResumeVersion,
+  TailorEstimate,
+  ResumeDownloadFormat,
+} from "../types";
+import { Modal } from "./Modal";
 
 // Strips characters that aren't filesystem-safe on Windows/macOS/Linux,
 // collapsing runs of them to a single hyphen.
 function sanitizeFilenamePart(value: string): string {
-  return value.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'resume';
+  return value.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "resume";
 }
 
-const DOWNLOAD_META: Record<ResumeDownloadFormat, { label: string; icon: typeof IconFileTypePdf }> = {
-  pdf: { label: 'PDF', icon: IconFileTypePdf },
-  docx: { label: 'Word', icon: IconFileTypeDocx },
-  txt: { label: 'txt', icon: IconFileText },
+const DOWNLOAD_META: Record<
+  ResumeDownloadFormat,
+  { label: string; icon: typeof IconFileTypePdf }
+> = {
+  pdf: { label: "PDF", icon: IconFileTypePdf },
+  docx: { label: "Word", icon: IconFileTypeDocx },
+  txt: { label: "txt", icon: IconFileText },
 };
 
 // Renders the 0–5 match rating as filled/empty star icons plus an "N/5 Match Rating" label.
@@ -35,7 +43,10 @@ function MatchStars({ rating }: { rating: number }) {
   const filled = Math.max(0, Math.min(5, rating));
   return (
     <div className="flex items-center gap-3">
-      <div className="flex items-center gap-0.5" aria-label={`Match rating ${filled} out of 5`}>
+      <div
+        className="flex items-center gap-0.5"
+        aria-label={`Match rating ${filled} out of 5`}
+      >
         {Array.from({ length: 5 }, (_, i) =>
           i < filled ? (
             <IconStarFilled key={i} size={18} className="text-amber-800" />
@@ -44,7 +55,9 @@ function MatchStars({ rating }: { rating: number }) {
           ),
         )}
       </div>
-      <span className="font-medium text-amber-800">{filled}/5 Match Rating</span>
+      <span className="font-medium text-amber-800">
+        {filled}/5 Match Rating
+      </span>
     </div>
   );
 }
@@ -61,8 +74,8 @@ interface Props {
 // a $0.004 tailor doesn't round to "$0.00". null means the model had no pricing
 // configured — we say "unknown", never a fabricated number.
 function formatCost(cost: number | null): string {
-  if (cost === null || cost === undefined) return 'cost unknown';
-  if (cost === 0) return '$0.00';
+  if (cost === null || cost === undefined) return "cost unknown";
+  if (cost === 0) return "$0.00";
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
 }
@@ -72,7 +85,7 @@ function usageSummary(v: ResumeVersion): string {
     v.input_tokens != null && v.output_tokens != null
       ? `${v.input_tokens.toLocaleString()} in / ${v.output_tokens.toLocaleString()} out tokens`
       : null;
-  return [v.model, tokens, formatCost(v.cost)].filter(Boolean).join(' · ');
+  return [v.model, tokens, formatCost(v.cost)].filter(Boolean).join(" · ");
 }
 
 // Describes a pre-generate estimate. 'historical' is the trustworthy case
@@ -80,12 +93,12 @@ function usageSummary(v: ResumeVersion): string {
 // chars/4-token guess with no history yet; 'unavailable' means the model has
 // neither, so no number is shown at all — never a fabricated one.
 function estimateSummary(e: TailorEstimate): string {
-  if (e.source === 'unavailable' || e.estimatedCost === null) {
+  if (e.source === "unavailable" || e.estimatedCost === null) {
     return `Cost estimate unavailable — no pricing configured for ${e.model}.`;
   }
   const cost = formatCost(e.estimatedCost);
-  if (e.source === 'historical') {
-    return `Estimated cost: ~${cost} (based on ${e.sampleSize} previous run${e.sampleSize === 1 ? '' : 's'})`;
+  if (e.source === "historical") {
+    return `Estimated cost: ~${cost} (based on ${e.sampleSize} previous run${e.sampleSize === 1 ? "" : "s"})`;
   }
   return `Estimated cost: ~${cost} (rough estimate, no history yet for ${e.model})`;
 }
@@ -100,20 +113,23 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [estimate, setEstimate] = useState<TailorEstimate | null>(null);
-  const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(null);
+  const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(
+    null,
+  );
   const [includeMatchRating, setIncludeMatchRating] = useState(true);
   const [includeSuggestions, setIncludeSuggestions] = useState(true);
-  const [targetOnePage, setTargetOnePage] = useState(false);
+  const [targetOnePage, setTargetOnePage] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!optionsOpen) return;
     const onClickAway = (e: MouseEvent) => {
-      if (optionsRef.current && !optionsRef.current.contains(e.target as Node)) setOptionsOpen(false);
+      if (optionsRef.current && !optionsRef.current.contains(e.target as Node))
+        setOptionsOpen(false);
     };
-    document.addEventListener('mousedown', onClickAway);
-    return () => document.removeEventListener('mousedown', onClickAway);
+    document.addEventListener("mousedown", onClickAway);
+    return () => document.removeEventListener("mousedown", onClickAway);
   }, [optionsOpen]);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
@@ -121,7 +137,8 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   // Parse the raw stored output into its four sections for display. Handles
   // both the current marker-delimited format and older pre-structured rows.
   const sections = useMemo(
-    () => (selected ? parseTailoredResume(selected.tailored_output ?? '') : null),
+    () =>
+      selected ? parseTailoredResume(selected.tailored_output ?? "") : null,
     [selected],
   );
 
@@ -134,7 +151,10 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
         setVersions(list);
         setSelected(list[0] ?? null);
       } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'Failed to load versions.');
+        if (active)
+          setError(
+            err instanceof Error ? err.message : "Failed to load versions.",
+          );
       }
     })();
     return () => {
@@ -183,7 +203,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
         // Non-critical; leave the previous estimate displayed.
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to tailor resume.');
+      setError(err instanceof Error ? err.message : "Failed to tailor resume.");
     } finally {
       setGenerating(false);
     }
@@ -197,11 +217,19 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     setDownloading(format);
     setError(null);
     try {
-      const blob = await api.downloadResumeVersion(application.id, selected.id, format);
+      const blob = await api.downloadResumeVersion(
+        application.id,
+        selected.id,
+        format,
+      );
       const filename = `${sanitizeFilenamePart(application.company)}-${sanitizeFilenamePart(application.title)}-resume.${format}`;
       triggerBlobDownload(blob, filename);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to download the ${format.toUpperCase()}.`);
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Failed to download the ${format.toUpperCase()}.`,
+      );
     } finally {
       setDownloading(null);
     }
@@ -220,14 +248,26 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     }
   }
 
-  const optionRows: { label: string; checked: boolean; onToggle: () => void }[] = [
-    { label: 'Include match rating', checked: includeMatchRating, onToggle: () => setIncludeMatchRating((v) => !v) },
+  const optionRows: {
+    label: string;
+    checked: boolean;
+    onToggle: () => void;
+  }[] = [
     {
-      label: 'Include interview & cover-letter suggestions',
+      label: "Include match rating",
+      checked: includeMatchRating,
+      onToggle: () => setIncludeMatchRating((v) => !v),
+    },
+    {
+      label: "Include interview & cover-letter suggestions",
       checked: includeSuggestions,
       onToggle: () => setIncludeSuggestions((v) => !v),
     },
-    { label: 'Target one page', checked: targetOnePage, onToggle: () => setTargetOnePage((v) => !v) },
+    {
+      label: "Target one page",
+      checked: targetOnePage,
+      onToggle: () => setTargetOnePage((v) => !v),
+    },
   ];
 
   return (
@@ -241,14 +281,19 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
       wide
       onClose={onClose}
       footer={
-        <button type="button" className="btn-ghost px-6 py-2 text-sm" onClick={onClose}>
+        <button
+          type="button"
+          className="btn-ghost px-6 py-2 text-sm"
+          onClick={onClose}
+        >
           Close
         </button>
       }
     >
       {!hasJobDescription && (
         <div className="bg-amber-100 text-amber-800 rounded-xl p-3.5 text-[13px] mb-4">
-          This application has no job description yet. Add one via Edit before tailoring.
+          This application has no job description yet. Add one via Edit before
+          tailoring.
         </div>
       )}
 
@@ -261,7 +306,11 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               disabled={generating || !hasJobDescription}
               className="bg-matcha-400 hover:bg-matcha-600 disabled:opacity-55 disabled:cursor-not-allowed text-white font-medium text-sm px-6 py-2.5 rounded-l-lg transition-colors flex items-center gap-2"
             >
-              {generating ? 'Generating…' : versions.length ? 'Generate new version' : 'Tailor for this job'}
+              {generating
+                ? "Generating…"
+                : versions.length
+                  ? "Generate new version"
+                  : "Tailor for this job"}
             </button>
             <button
               type="button"
@@ -280,15 +329,25 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                     className="px-4 py-2 hover:bg-matcha-50 cursor-pointer flex justify-between items-center transition-colors"
                   >
                     <span className="text-ink">{row.label}</span>
-                    {row.checked ? <IconCheck size={18} className="text-matcha-600" /> : <div className="w-[18px]" />}
+                    {row.checked ? (
+                      <IconCheck size={18} className="text-matcha-600" />
+                    ) : (
+                      <div className="w-[18px]" />
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
-          <span className="text-ink-soft text-[11px]">{versions.length} version(s) saved</span>
+          <span className="text-ink-soft text-[11px]">
+            {versions.length} version(s) saved
+          </span>
         </div>
-        {estimate && <p className="text-ink-soft text-[10px] italic">{estimateSummary(estimate)}</p>}
+        {estimate && (
+          <p className="text-ink-soft text-[10px] italic">
+            {estimateSummary(estimate)}
+          </p>
+        )}
       </div>
 
       {error && <p className="text-rose-800 text-[13px] mt-3">{error}</p>}
@@ -300,7 +359,9 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               <span className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">
                 {selected.ai_provider} · {formatDate(selected.created_at)}
               </span>
-              <span className="text-[10px] text-ink-soft">{usageSummary(selected)}</span>
+              <span className="text-[10px] text-ink-soft">
+                {usageSummary(selected)}
+              </span>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -309,9 +370,9 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                 onClick={() => void handleCopy()}
               >
                 <IconCopy size={14} />
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? "Copied" : "Copy"}
               </button>
-              {(['pdf', 'docx', 'txt'] as const).map((format) => {
+              {(["pdf", "docx", "txt"] as const).map((format) => {
                 const { label, icon: Icon } = DOWNLOAD_META[format];
                 return (
                   <button
@@ -322,7 +383,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                     disabled={downloading !== null}
                   >
                     <Icon size={14} />
-                    {downloading === format ? '…' : label}
+                    {downloading === format ? "…" : label}
                   </button>
                 );
               })}
@@ -331,15 +392,21 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
 
           {(sections.matchRating !== null || sections.matchJustification) && (
             <div className="card p-4 flex flex-col gap-3">
-              {sections.matchRating !== null && <MatchStars rating={sections.matchRating} />}
+              {sections.matchRating !== null && (
+                <MatchStars rating={sections.matchRating} />
+              )}
               {sections.matchJustification && (
-                <p className="text-ink leading-relaxed m-0">{sections.matchJustification}</p>
+                <p className="text-ink leading-relaxed m-0">
+                  {sections.matchJustification}
+                </p>
               )}
             </div>
           )}
 
           <div className="flex flex-col gap-2">
-            <label className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">Tailored resume</label>
+            <label className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">
+              Tailored resume
+            </label>
             <textarea
               readOnly
               value={sections.resume}
@@ -354,7 +421,9 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                 <IconBulb size={16} />
                 <span>Suggestions &amp; Interview Prep</span>
               </div>
-              <div className="text-ink leading-relaxed whitespace-pre-wrap">{sections.suggestions}</div>
+              <div className="text-ink leading-relaxed whitespace-pre-wrap">
+                {sections.suggestions}
+              </div>
             </div>
           )}
         </div>
@@ -367,7 +436,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               key={v.id}
               type="button"
               onClick={() => setSelected(v)}
-              className={`filter-chip ${selected?.id === v.id ? 'filter-chip-active' : 'filter-chip-inactive'}`}
+              className={`filter-chip ${selected?.id === v.id ? "filter-chip-active" : "filter-chip-inactive"}`}
             >
               {v.ai_provider} · {formatDate(v.created_at)}
             </button>

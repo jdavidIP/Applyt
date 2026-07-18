@@ -22,3 +22,4 @@ Thumbs.db
 # Claude Code local state (per-machine, not project config)
 .claude/
 .agents/
+.superdesign/
