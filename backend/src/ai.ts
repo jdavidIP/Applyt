@@ -102,6 +102,12 @@ function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean, 
     '  have — only reorganize, reword, and re-emphasize what is present in the base',
     '  resume. Omit "projects" entirely (not an empty array) if the base resume has',
     '  none. Every bullets array holds plain strings with no leading "-" or "•".',
+    '- resume.education[].degree: keep this SHORT — just the credential itself',
+    '  (e.g., "B.S. Computer Science" or "Bachelor of Computer Science — Honours',
+    '  (Co-op)"). Put distinctions, honors, and the major/concentration in',
+    '  `honors` instead of appending them to degree (e.g., honors: "With',
+    '  Distinction, Major in Cybersecurity"), so the degree line never has to',
+    '  wrap in a single-column resume layout.',
   ];
   if (targetOnePage) {
     fieldNotes.push(
