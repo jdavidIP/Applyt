@@ -15,14 +15,25 @@ import type { StructuredResume } from '../src/resumeSchema.ts';
 // before drawing either half (ensureSpace), so a full page break happens
 // before the row starts instead of in the middle of it.
 
-// A resume built to reproduce the reported bug shape: a long combined
-// experience location and, worse, an education "degree" so long it wraps —
-// exactly what the AI produced in the reported case (distinction/major text
-// appended to degree instead of kept in `honors`, per the pre-fix behavior).
+// A resume built at the same scale as the actual reported PDF: enough
+// experience/project content to push the Education section far enough down
+// page 1 that the old renderer's mid-row page-break bug actually triggers
+// (a shorter fixture renders in 1 clean page on both old and new code and
+// wouldn't catch a regression — verified by running this fixture against
+// the pre-fix renderer, which produces 3 pages; the fixed renderer collapses
+// it to 2). Also reproduces the pathological "degree" the AI actually
+// produced in the report: distinction/major text appended to degree instead
+// of kept in `honors`.
 const PATHOLOGICAL_RESUME: StructuredResume = {
-  contact: { name: 'Jose David Ibanez', email: 'jdavidip2022@gmail.com', location: 'Mississauga, ON' },
+  contact: {
+    name: 'Jose David Ibanez',
+    email: 'jdavidip2022@gmail.com',
+    phone: '+1 (548) 390-4453',
+    links: ['github.com/jdavidIP', 'linkedin.com/in/jose-david-ibanez-622314253'],
+    location: 'Mississauga, ON',
+  },
   summary:
-    'Early-career full-stack software developer with a Computer Science degree (Cybersecurity major) and hands-on professional experience across React, Node.js, C#/ASP.NET, PHP, and SQL/relational databases.',
+    'Early-career full-stack software developer with a Computer Science degree (Cybersecurity major) and hands-on professional experience across React, Node.js, C#/ASP.NET, PHP, and SQL/relational databases. Comfortable working in Agile teams, writing and testing production code, resolving defects, and supporting deployments on cloud platforms (GCP, with AWS Cloud Practitioner study in progress). Strong foundation in OOP, software design, testing practices, and version control/CI-CD, with a demonstrated ability to quickly learn new stacks and contribute across the full software development lifecycle.',
   experience: [
     {
       title: 'Junior Software Developer, Contract, Full Time',
@@ -32,7 +43,42 @@ const PATHOLOGICAL_RESUME: StructuredResume = {
       endDate: 'Present',
       bullets: [
         'Designed, developed, and maintained 3 internal full-stack applications using React, Node.js, FastAPI, and PostgreSQL to support operational workflows.',
-        'Built and enhanced backend APIs implementing business logic, database interactions, and service integrations.',
+        'Built and enhanced backend APIs implementing business logic, database interactions, and service integrations, collaborating closely with engineers in an Agile, iterative development cycle.',
+        'Performed QA testing and debugged issues across frontend, backend, and database systems, identifying and resolving problems prior to release.',
+        'Managed PostgreSQL databases and supported deployments on Google Cloud Platform (Cloud Run, Cloud SQL), contributing to CI/CD pipelines.',
+        'Used AI-assisted tools (Claude, GitHub Copilot) to accelerate testing, debugging, and development workflows.',
+      ],
+    },
+    {
+      title: 'Junior Software Developer Intern',
+      company: 'Agro-Costa SAS',
+      location: 'Barranquilla, Colombia',
+      startDate: 'May 2024',
+      endDate: 'December 2024',
+      bullets: [
+        'Developed and maintained backend services using PHP, ASP.NET, and Node.js, implementing business logic, API integrations, and database-driven workflows in a production environment.',
+        'Practiced test-driven development to validate business logic before implementation, improving code reliability and reducing production regressions.',
+        'Implemented role-based access control (RBAC) to manage multiple user types, improving administrative workflows and increasing platform engagement by 30%.',
+        'Identified, investigated, and resolved production issues across frontend, backend, and data systems, tracing bugs to their root cause across the stack.',
+        'Designed and optimized SQL Server and MySQL queries, and tracked work using Azure DevOps throughout the development lifecycle.',
+      ],
+    },
+  ],
+  projects: [
+    {
+      name: 'Simple Rentals – Full Stack Web App',
+      dateRange: 'January 2025 – August 2025',
+      bullets: [
+        'Built backend using Django REST Framework and PostgreSQL, with a responsive React frontend, as part of a small team.',
+        'Built the testing and CI/CD infrastructure: unit and end-to-end tests with Cypress and Vitest, and automated pipelines with GitHub Actions on every push and pull request.',
+        'Applied test-driven development and managed tasks via Azure DevOps, with containerized deployment using Docker.',
+      ],
+    },
+    {
+      name: 'Real-Time Object Detection & Tracking System',
+      dateRange: '2023 – 2024',
+      bullets: [
+        'Built a Python computer vision application using OpenCV and YOLO, implementing the detection pipeline end-to-end and tuning parameters for accuracy and performance.',
       ],
     },
   ],
@@ -46,7 +92,36 @@ const PATHOLOGICAL_RESUME: StructuredResume = {
         'Relevant Coursework: Software Design Techniques, Data Structures and Algorithms, Software Development Life Cycle, Software Quality, Object Oriented Programming, Database Systems, Applied Cryptography, Network Security',
     },
   ],
-  skills: [{ label: 'Languages', items: ['Python', 'JavaScript', 'TypeScript', 'C#'] }],
+  skills: [
+    { label: 'Languages', items: ['Python', 'JavaScript', 'TypeScript', 'C#', 'C', 'C++', 'PHP', 'SQL', 'HTML5', 'CSS3'] },
+    { label: 'Web & Backend', items: ['React', 'Node.js', 'FastAPI', 'Django', 'ASP.NET', 'PHP', 'REST API design & integration'] },
+    { label: 'Databases', items: ['PostgreSQL', 'MySQL', 'Microsoft SQL Server', 'MongoDB', 'SQLite', 'Redis'] },
+    { label: 'Testing & QA', items: ['Test-driven development (TDD)', 'Cypress', 'Vitest', 'manual QA testing', 'bug tracking', 'Postman'] },
+    {
+      label: 'Cloud & DevOps',
+      items: [
+        'Docker',
+        'Google Cloud Platform (Cloud Run, Cloud SQL)',
+        'Microsoft Azure (coursework)',
+        'GitHub Actions',
+        'Azure DevOps',
+        'Git',
+        'CI/CD',
+        'AWS Certified Cloud Practitioner (in progress)',
+      ],
+    },
+    {
+      label: 'Practices & Security',
+      items: [
+        'Agile/iterative development',
+        'SDLC',
+        'OOP & software design principles',
+        'RBAC & secure coding fundamentals',
+        'code review',
+        'AI-assisted development (Claude, GitHub Copilot)',
+      ],
+    },
+  ],
 };
 
 test('PDF: a resume with a long education title/date row does not spill the row across a huge blank gap or extra pages', async () => {

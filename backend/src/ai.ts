@@ -103,11 +103,11 @@ function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean, 
     '  resume. Omit "projects" entirely (not an empty array) if the base resume has',
     '  none. Every bullets array holds plain strings with no leading "-" or "•".',
     '- resume.education[].degree: keep this SHORT — just the credential itself',
-    '  (e.g., "B.S. Computer Science" or "Bachelor of Computer Science — Honours',
-    '  (Co-op)"). Put distinctions, honors, and the major/concentration in',
-    '  `honors` instead of appending them to degree (e.g., honors: "With',
-    '  Distinction, Major in Cybersecurity"), so the degree line never has to',
-    '  wrap in a single-column resume layout.',
+    '  (e.g., "B.S. Computer Science" or "Bachelor of Computer Science"). Put',
+    '  distinctions, honors, program modifiers (Honours, Co-op), and the major/',
+    '  concentration in `honors` instead of appending them to degree (e.g.,',
+    '  honors: "Honours (Co-op), With Distinction, Major in Cybersecurity"), so',
+    '  the degree line never has to wrap in a single-column resume layout.',
   ];
   if (targetOnePage) {
     fieldNotes.push(
