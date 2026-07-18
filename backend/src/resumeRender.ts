@@ -98,6 +98,22 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
 
     const contentWidth = doc.page.width - PDF_MARGIN * 2;
 
+    // pdfkit auto-paginates mid-`text()` call when the given position doesn't
+    // fit the remaining page height. titleDateRow draws its left and right
+    // halves as two separate .text() calls sharing one captured `y` — if the
+    // first call triggers an implicit page break, that `y` (a bottom-of-old-
+    // page value) is stale on the new page, so the second call lands far down
+    // the new page instead of alongside the first, producing a huge blank gap
+    // (and sometimes a further implicit page break of its own). Forcing the
+    // page break ourselves, before either call, keeps both halves on one page.
+    function ensureSpace(minHeight: number) {
+      const bottom = doc.page.height - doc.page.margins.bottom;
+      if (doc.y + minHeight > bottom) {
+        doc.addPage();
+        doc.x = PDF_MARGIN;
+      }
+    }
+
     // Header: centered name + contact line.
     doc.font('Helvetica-Bold').fontSize(18).fillColor(ACCENT_COLOR).text(resume.contact.name, { align: 'center' });
     const contactLine = contactLineParts(resume).join('  |  ');
@@ -112,6 +128,9 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     // back to PDF_MARGIN itself rather than trust the cursor left behind by
     // whatever ran before it (see titleDateRow).
     function sectionHeader(label: string) {
+      // Reserve room for the header rule plus at least the start of its first
+      // row, so a header never ends up alone at the bottom of a page.
+      ensureSpace(50);
       doc.x = PDF_MARGIN;
       doc.font('Helvetica-Bold').fontSize(11).fillColor(ACCENT_COLOR).text(label.toUpperCase());
       const y = doc.y + 1;
@@ -140,8 +159,14 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     // date) actually ends lower, so content drawn after this row never lands
     // on top of a wrapped second line.
     function titleDateRow(leftBold: string, leftAccent: string, date: string) {
-      const y = doc.y;
       const leftWidth = date ? contentWidth - DATE_COLUMN_WIDTH - DATE_COLUMN_GUTTER : contentWidth;
+      // Reserve space for the row (both halves share one `y` below) before
+      // drawing anything — see the ensureSpace comment above for why.
+      doc.font('Helvetica-Bold').fontSize(10.5);
+      const estimatedHeight = doc.heightOfString(leftBold + leftAccent, { width: leftWidth });
+      ensureSpace(Math.max(estimatedHeight, 14));
+
+      const y = doc.y;
       doc
         .font('Helvetica-Bold')
         .fontSize(10.5)
@@ -169,6 +194,7 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     function bulletList(bullets: string[]) {
       const bulletIndent = 12;
       for (const bullet of bullets) {
+        ensureSpace(14);
         const y = doc.y;
         doc.font('Helvetica').fontSize(9.5).fillColor('black').text('•', PDF_MARGIN, y, { width: bulletIndent });
         doc.text(bullet, PDF_MARGIN + bulletIndent, y, { width: contentWidth - bulletIndent });
@@ -185,7 +211,10 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     if (resume.experience.length) {
       sectionHeader('Professional Experience');
       for (const e of resume.experience) {
-        titleDateRow(e.title, ` — ${e.company}${e.location ? `, ${e.location}` : ''}`, experienceDateRange(e.startDate, e.endDate));
+        // Parenthetical location ("Company (City, ST)") stays compact and
+        // keeps the whole title/company/location on one line far more often
+        // than a comma-appended location, which tends to wrap mid-location.
+        titleDateRow(e.title, ` — ${e.company}${e.location ? ` (${e.location})` : ''}`, experienceDateRange(e.startDate, e.endDate));
         doc.moveDown(0.15);
         bulletList(e.bullets);
         doc.moveDown(0.4);
@@ -220,7 +249,14 @@ function renderStructuredPdf(resume: StructuredResume): Promise<Buffer> {
     if (resume.education.length) {
       sectionHeader('Education');
       for (const e of resume.education) {
-        titleDateRow(`${e.institution} — ${e.degree}`, '', e.dates);
+        // Degree gets its own bold line with the date; institution goes on a
+        // separate italic line below rather than crammed into one combined
+        // title — "institution — degree" easily overflows the left column
+        // and wraps awkwardly (see resumeRender.ts history / Issue #23).
+        titleDateRow(e.degree, '', e.dates);
+        doc.moveDown(0.1);
+        doc.x = PDF_MARGIN;
+        doc.font('Helvetica-Oblique').fontSize(9.5).fillColor('black').text(e.institution, { width: contentWidth });
         if (e.honors) {
           doc.moveDown(0.1);
           doc.x = PDF_MARGIN;
@@ -307,7 +343,7 @@ async function renderStructuredDocx(resume: StructuredResume): Promise<Buffer> {
     children.push(docxSectionHeader('Professional Experience'));
     for (const e of resume.experience) {
       children.push(
-        docxTitleDateRow(e.title, ` — ${e.company}${e.location ? `, ${e.location}` : ''}`, experienceDateRange(e.startDate, e.endDate)),
+        docxTitleDateRow(e.title, ` — ${e.company}${e.location ? ` (${e.location})` : ''}`, experienceDateRange(e.startDate, e.endDate)),
       );
       children.push(...docxBullets(e.bullets));
     }
@@ -338,7 +374,8 @@ async function renderStructuredDocx(resume: StructuredResume): Promise<Buffer> {
   if (resume.education.length) {
     children.push(docxSectionHeader('Education'));
     for (const e of resume.education) {
-      children.push(docxTitleDateRow(`${e.institution} — ${e.degree}`, '', e.dates));
+      children.push(docxTitleDateRow(e.degree, '', e.dates));
+      children.push(new Paragraph({ children: [new TextRun({ text: e.institution, italics: true, size: 19 })] }));
       if (e.honors) children.push(new Paragraph({ children: [new TextRun({ text: e.honors, italics: true, size: 18 })] }));
       if (e.coursework) children.push(new Paragraph({ children: [new TextRun({ text: e.coursework, size: 18 })] }));
     }
