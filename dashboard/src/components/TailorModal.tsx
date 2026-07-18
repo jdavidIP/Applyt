@@ -396,7 +396,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                 <MatchStars rating={sections.matchRating} />
               )}
               {sections.matchJustification && (
-                <p className="text-ink leading-relaxed m-0">
+                <p className="text-ink leading-relaxed whitespace-pre-wrap m-0">
                   {sections.matchJustification}
                 </p>
               )}
