@@ -2,12 +2,31 @@
 
 A local-first, single-user job application tracker. You run it on your own machine;
 nothing is sent to any server we operate. See [`CLAUDE.md`](./CLAUDE.md) for the full
-product spec and roadmap.
+product spec and roadmap, [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the pieces
+fit together, and [`SETUP.md`](./SETUP.md) for detailed setup (Docker or manual).
 
-> **Status: Phases 1–5 complete.** Manual tracking, auto-capture on Indeed/LinkedIn/
-> Glassdoor, lifecycle management, AI resume tailoring with cost tracking, and an
-> ATS-friendly template for tailored resume downloads all work today. Docker
-> packaging (Phase 6) is next.
+> **Status: Phases 1–6 complete.** Manual tracking, auto-capture on Indeed/LinkedIn/
+> Glassdoor, lifecycle management, AI resume tailoring with cost tracking, an
+> ATS-friendly template for tailored resume downloads, and one-command Docker
+> packaging all work today.
+
+<!--
+  Screenshots/GIFs of the dashboard and extension popup go here. Not included yet —
+  add a few PNGs/GIFs under e.g. `docs/screenshots/` and embed them with standard
+  Markdown image syntax once captured.
+-->
+
+## Quick start
+
+```bash
+git clone https://github.com/jdavidIP/Applyt.git
+cd Applyt
+docker compose up --build
+```
+
+Open **http://localhost:5173**. That's the whole setup — see
+[`SETUP.md`](./SETUP.md) for the no-Docker path, extension installation, AI key
+configuration, and troubleshooting.
 
 ## Tech stack
 
@@ -50,36 +69,24 @@ this is deliberately self-hosted rather than a hosted service.
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) 20+ (tested on 24)
-- npm 10+
-- Google Chrome (or a Chromium-based browser) if you want the extension
-
-## Setup & run
-
-```bash
-# 1. Install all workspace dependencies (backend + dashboard + extension)
-npm install
-
-# 2. Start the backend (port 4317) and the dashboard (port 5173) together
-npm run dev
-```
-
-Then open **http://localhost:5173**.
-
-The dashboard proxies API calls to the backend, so you only need the one URL.
-
-### Running the pieces separately
-
-```bash
-npm run dev:backend     # backend only, http://localhost:4317
-npm run dev:dashboard   # dashboard only, http://localhost:5173
-npm run dev:extension   # extension dev build, watches extension/dist
-```
+- **Docker** (with Compose v2), for the one-command path above, **or**
+- [Node.js](https://nodejs.org/) 20+ (tested on 24) and npm 10+, for running the
+  pieces directly — see [`SETUP.md`](./SETUP.md)
+- Google Chrome (or a Chromium-based browser) if you want the extension, either way
 
 ## Browser extension (auto-capture)
 
 The extension watches job pages you're already browsing on Indeed, LinkedIn, and
 Glassdoor, and reports applications to your local backend the moment it detects one.
+
+> **Contributor note: selectors *will* break.** None of these three sites expose a
+> public API for this, and their DOM structure changes without notice. Detection
+> logic is deliberately isolated into
+> `extension/src/shared/selectors/{indeed,linkedin,glassdoor}.json` — when a
+> detector stops firing after a site redesign, the fix is almost always editing
+> that JSON, not the `.ts` content script. See
+> [`ARCHITECTURE.md`](./ARCHITECTURE.md#why-selectors-are-config-not-code) before
+> touching a content script.
 
 ```bash
 npm run build --workspace extension   # produces extension/dist
@@ -89,7 +96,8 @@ Load it unpacked in Chrome:
 
 1. Go to `chrome://extensions`, enable **Developer mode**.
 2. **Load unpacked** → select `extension/dist`.
-3. Make sure the backend is running (`npm run dev:backend` or `npm run dev`).
+3. Make sure the backend is running — `npm run dev:backend`/`npm run dev`, or
+   `docker compose up backend`. See [`SETUP.md`](./SETUP.md).
 
 What it does today, per platform:
 
@@ -114,10 +122,6 @@ dashboard first.)
 
 A manual fallback always exists: right-click a job page → **"Mark this job as
 applied"**, or add/edit an entry directly in the dashboard.
-
-Selectors and confirmation text are isolated per platform in
-`extension/src/shared/selectors/*.json` — when a site changes its markup (it will),
-fix the JSON, not the content script.
 
 ## AI resume tailoring
 
@@ -209,10 +213,14 @@ inherently tied to each site's actual (and frequently changing) markup.
 ## Project layout
 
 ```
-backend/    Fastify + better-sqlite3 API (TypeScript)
-dashboard/  React + Vite single-page app (TypeScript)
-extension/  Chrome Manifest V3 extension — content scripts + background service worker
-CLAUDE.md   Full product spec and phased roadmap
+backend/         Fastify + better-sqlite3 API (TypeScript)
+dashboard/       React + Vite single-page app (TypeScript)
+extension/       Chrome Manifest V3 extension — content scripts + background service worker
+shared/          Design tokens shared by the dashboard and extension popup UIs
+docker-compose.yml, backend/Dockerfile, dashboard/Dockerfile   One-command Docker packaging
+CLAUDE.md        Full product spec and phased roadmap
+ARCHITECTURE.md  How the pieces fit together and why
+SETUP.md         Detailed setup (Docker or manual), configuration reference, troubleshooting
 ```
 
 ## License
