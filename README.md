@@ -5,10 +5,12 @@ nothing is sent to any server we operate. See [`CLAUDE.md`](./CLAUDE.md) for the
 product spec and roadmap, [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the pieces
 fit together, and [`SETUP.md`](./SETUP.md) for detailed setup (Docker or manual).
 
-> **Status: Phases 1–6 complete.** Manual tracking, auto-capture on Indeed/LinkedIn/
+> **Status: v1.0 — feature-complete.** All six phases of the original roadmap
+> (CLAUDE.md §7) are done: manual tracking, auto-capture on Indeed/LinkedIn/
 > Glassdoor, lifecycle management, AI resume tailoring with cost tracking, an
 > ATS-friendly template for tailored resume downloads, and one-command Docker
-> packaging all work today.
+> packaging all work today. Ongoing work from here is bug fixes and incremental
+> enhancements filed as GitHub issues, not new phases.
 
 <!--
   Screenshots/GIFs of the dashboard and extension popup go here. Not included yet —
@@ -222,6 +224,24 @@ CLAUDE.md        Full product spec and phased roadmap
 ARCHITECTURE.md  How the pieces fit together and why
 SETUP.md         Detailed setup (Docker or manual), configuration reference, troubleshooting
 ```
+
+## Known limitations / post-1.0 backlog
+
+- **Job description formatting** ([#12](https://github.com/jdavidIP/Applyt/issues/12)) —
+  captured job descriptions are read correctly but rendered with inconsistent
+  whitespace/layout, which is harder to read and may affect AI tailoring quality.
+- **Cover letter generation** ([#15](https://github.com/jdavidIP/Applyt/issues/15)) —
+  not yet supported; tailoring currently produces a resume (plus optional match
+  rating and interview suggestions) only.
+- **Gmail confirmation-email fallback for Indeed** (CLAUDE.md §6/§8) — deferred
+  indefinitely; the extension's own DOM-based detection is the only detection path.
+- The extension has no automated tests (see [Tests](#tests) above); Glassdoor's
+  external-redirect/manual-fallback paths and LinkedIn's external "Apply" were
+  only lightly exercised in live testing compared to each platform's Easy Apply
+  flow.
+
+None of these block using Applyt as a daily driver — they're refinements, tracked
+as GitHub issues rather than roadmap phases.
 
 ## License
 

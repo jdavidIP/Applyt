@@ -1,6 +1,6 @@
 {
   "name": "applyt",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Self-hosted, single-user job application tracker (Phase 1: manual tracker).",
   "license": "MIT",

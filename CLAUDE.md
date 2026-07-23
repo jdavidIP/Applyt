@@ -120,41 +120,43 @@ For external redirects, log the entry with `status = 'pending_confirmation'` and
 
 ## 7. Phased build plan
 
-**Phase 1 — Core tracking, manual entry (no browser automation yet)**
+**Status: all six phases complete — this is the v1.0 roadmap, not an in-progress plan.** Ongoing work past this point is tracked as individual GitHub issues (bug fixes, small enhancements), not new phases. See the README's "Known limitations / post-1.0 backlog" section for the current list.
+
+**Phase 1 — Core tracking, manual entry (no browser automation yet)** — DONE
 - SQLite schema (Section 5) and local backend CRUD routes (`/applications` GET/POST/PATCH/DELETE)
 - Dashboard: table view, manual add/edit/delete, status dropdown, sort/filter by platform/status/date
 - CSV export endpoint + download button
 - Acceptance: usable as a fully manual tracker before any extension code exists
 
-**Phase 2 — Browser extension, auto-capture**
+**Phase 2 — Browser extension, auto-capture** — DONE
 - Indeed content script first (native Indeed Apply flow), then LinkedIn Easy Apply, then Glassdoor Easy Apply
 - External-redirect handling on all three: log as `pending_confirmation`, surface for user review in dashboard
 - Extension posts to the local backend on the shared default port
 - Manual "mark as applied" fallback (context menu + dashboard button)
 - Acceptance: applying to a real job in each in-platform flow produces a correct dashboard entry within a few seconds
 
-**Phase 3 — Lifecycle management**
+**Phase 3 — Lifecycle management** — DONE
 - Bulk actions: mark stale after N days of no status change (user-configurable threshold), bulk delete rejected
 - Filtering/sorting improvements, basic stats (applications per week, response rate)
 
-**Phase 4 — AI resume tailoring**
+**Phase 4 — AI resume tailoring** — DONE
 - Settings screen: enter Anthropic or OpenAI key, stored in local `.env`/settings file only
 - Upload base resume (plain text first; PDF/docx parsing later)
 - "Tailor for this job" action on a saved application entry → sends resume + job description to the chosen provider → stores result in `resume_versions` linked to that application
 
-**Phase 5 — ATS-friendly resume template for tailored downloads**
+**Phase 5 — ATS-friendly resume template for tailored downloads** — DONE
 - AI tailoring output (Phase 4) becomes structured JSON (contact, summary, experience, projects, education, skills) instead of a flat text blob, so a tailored resume has real sections to render into rather than being dumb-dumped into a default-font PDF/DOCX
 - One default ATS-approved visual template (centered header, colored section headers with underline rules, right-aligned dates, hanging-indent bullets) applied to every tailored PDF/DOCX download — single column, no tables/images, ATS-parseable
 - No attempt to clone the visual layout of the user's originally-uploaded resume — the upload flow still reduces PDFs/DOCX to plain text (Phase 4), so there's no formatting to clone from; a single polished template is used for everyone
 - `resume_versions` rows written before this change (flat marker-text or older) keep downloading correctly forever via a legacy-format fallback in the parser — no data migration
 - (Google Sheets sync was considered for this slot and dropped: a one-way/on-demand sync requiring the user's own Google Cloud OAuth setup added real engineering cost for little benefit over the existing CSV export + manual upload path.)
 
-**Phase 6 — Polish for distribution**
+**Phase 6 — Polish for distribution** — DONE
 - `docker-compose.yml`, clear README with screenshots/GIFs, `SETUP.md`, `ARCHITECTURE.md`
 - Document the selector-fragility caveat prominently so contributors know to expect and fix breakage over time
 
-## 8. Open questions to resolve during implementation (not blockers, but flag if relevant)
+## 8. Open questions from the original plan — resolved
 
-- Exact default port and how it's configured (env var vs. config file)
-- Whether Gmail-based confirmation-email fallback (Section 6, Indeed) is in scope for v1 or deferred to a later phase
-- PDF/docx resume parsing library choice when Phase 4 moves past plain text
+- **Default port and configuration**: `4317` for the backend, `5173` for the dashboard; overridable via `PORT`/`HOST` (backend) and standard Vite config (dashboard). See README's Configuration table.
+- **Gmail-based confirmation-email fallback for Indeed**: deferred indefinitely, not just to "a later phase." The extension's own DOM-based detection is the sole detection path; revisit only if a specific need arises.
+- **PDF/docx resume parsing library**: `pdf-parse` for PDF text extraction, `mammoth` for `.docx`; tailored resume downloads are rendered via `pdfkit` (PDF) and `docx` (Word) against the structured ATS template from Phase 5.

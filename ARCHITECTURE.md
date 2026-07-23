@@ -146,7 +146,7 @@ never be 100% reliable given how these sites work: the right-click context
 menu item and the dashboard's manual add form both go through the same
 `POST /applications` endpoint as auto-capture.
 
-## Distribution (Phase 6)
+## Distribution (Phase 6, v1.0)
 
 - `docker-compose.yml` + `backend/Dockerfile` + `dashboard/Dockerfile` — a
   two-service stack (backend on `4317`, dashboard served by nginx on `5173`,
