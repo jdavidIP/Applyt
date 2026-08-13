@@ -108,10 +108,22 @@ function currentJobDescription(): string | undefined {
 // (companySelectors' 'a[href*="/company/"]') to find the nearby
 // bullet-separated metadata line ("{location} · {posted} · {applicants}"),
 // then looks a little further out for an exact-text workplace-type pill
-// ("Remote"/"Hybrid"/"On-site"). The `.closest('nav')` guard is load-bearing:
-// the search-results filter sidebar has its own "Remote"/"Hybrid" filter-chip
-// labels with the exact same text, which would otherwise false-positive
-// modality detection whenever the user has a workplace-type filter active.
+// ("Remote"/"Hybrid"/"On-site"). The `.closest('nav')` guard excludes the
+// search-results filter sidebar's own "Remote"/"Hybrid" filter-chip labels
+// (identical text, would otherwise false-positive whenever a workplace-type
+// filter is active) — but on the /jobs/search-results/ split-pane view, the
+// open job's detail pane sits next to a whole LIST of other job cards, and
+// widening far enough could in principle reach an ancestor spanning multiple
+// cards, misattributing a SIBLING card's modality to the open job (caught via
+// review; verified live that the widen-loop stays within a single job's own
+// card in practice, but this guard costs nothing and closes the gap even if
+// a future layout nests the list closer). Bounding on "the scope still
+// contains only ONE distinct company profile link" is the right signal, not
+// "only one bullet-line" — a single job card can legitimately have a SECOND
+// bullet line of its own ("Promoted by hirer · Responses managed off
+// LinkedIn"), which a naive bullet-line count would misread as having already
+// crossed into a sibling card (verified live — this exact thing broke
+// detection on a real posting during testing).
 function resolveLocationAndModality(): { location?: string; modality?: Modality } {
   const companyLink = firstMatch(selectors.companySelectors);
   let scope: Element | null = companyLink;
@@ -127,8 +139,13 @@ function resolveLocationAndModality(): { location?: string; modality?: Modality 
   let modalityScope: Element | null = locationLine;
   let modality: Modality | undefined;
   for (let i = 0; i < 5 && modalityScope && !modality; i++) {
-    modalityScope = modalityScope.parentElement;
-    if (!modalityScope) break;
+    const next: Element | null = modalityScope.parentElement;
+    if (!next) break;
+    const companyHrefs = new Set(
+      Array.from(next.querySelectorAll("a[href*='/company/']")).map((a) => a.getAttribute('href')),
+    );
+    if (companyHrefs.size > 1) break; // widened past the open job's own card — stop before this level
+    modalityScope = next;
     const pill = Array.from(modalityScope.querySelectorAll('*')).find((el) => {
       const text = (el.textContent ?? '').trim();
       return el.children.length === 0 && text.length < 20 && !el.closest('nav') && detectModality(text, selectors.modalityTextMatches) !== undefined;
