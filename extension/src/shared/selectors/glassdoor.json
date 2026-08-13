@@ -16,6 +16,22 @@
     "[class*='JobDetails_jobDescription']"
   ],
 
+  "_locationModalityComment": "Location verified live 2026-08-13 (glassdoor.ca detail pane): the location badge carries a stable 'data-test=\"location\"' attribute, scoped by construction to the open job (it's nested under the same JobDetails_ detail-pane tree, never the left-list cards). Modality is UNVERIFIED — neither of two tested postings (one on-site, one from a 'remote' search) rendered a distinct workplace-type badge; the closest signal seen was prose inside the job description ('hybrid remote working environment'), which is too unreliable to scan (JD body text, not structured metadata) and is deliberately NOT matched here. modalityContainerSelectors targets the same badges wrapper location lives in, in case Glassdoor renders a workplace-type badge there for some postings — degrades to 'not detected' rather than false-matching JD prose if it doesn't. Needs a live check against a posting that actually has one.",
+
+  "locationSelectors": [
+    "[data-test='location']"
+  ],
+
+  "modalityContainerSelectors": [
+    "[class*='JobDetails_badgesWrapper']"
+  ],
+
+  "modalityTextMatches": {
+    "hybrid": ["hybrid"],
+    "remote": ["remote"],
+    "on_site": ["on-site", "onsite", "in person", "in-person"]
+  },
+
   "easyApplyTextMatches": ["easy apply"],
 
   "externalApplyTextMatches": ["apply now", "apply on company site", "apply on employer site"],

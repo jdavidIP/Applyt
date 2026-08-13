@@ -27,6 +27,9 @@ export type Platform = (typeof PLATFORMS)[number];
 export const APPLY_METHODS = ['in_platform', 'external_redirect', 'manual'] as const;
 export type ApplyMethod = (typeof APPLY_METHODS)[number];
 
+export const MODALITIES = ['on_site', 'hybrid', 'remote'] as const;
+export type Modality = (typeof MODALITIES)[number];
+
 export const STATUSES = [
   'applied',
   'pending_confirmation',
@@ -51,6 +54,8 @@ export interface Application {
   date_last_updated: string;
   notes: string | null;
   job_description: string | null;
+  location: string | null;
+  modality: Modality | null;
   resume_version_id: number | null;
   created_at: string;
   updated_at: string;
@@ -70,6 +75,8 @@ export interface CreateApplicationBody {
   date_applied?: string;
   notes?: string | null;
   job_description?: string | null;
+  location?: string | null;
+  modality?: Modality | null;
 }
 
 export interface UpdateApplicationBody {
@@ -83,6 +90,8 @@ export interface UpdateApplicationBody {
   date_applied?: string;
   notes?: string | null;
   job_description?: string | null;
+  location?: string | null;
+  modality?: Modality | null;
 }
 
 export interface ListApplicationsQuery {

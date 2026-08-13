@@ -27,6 +27,14 @@
     ".jobs-description-content__text"
   ],
 
+  "_locationModalityComment": "VERIFIED LIVE 2026-08-13 against a real authenticated session, both the standalone /jobs/view/ page and the /jobs/search-results/ split pane. Location verified on multiple postings; modality verified on a real 'On-site' pill and a real 'Remote' pill (checked a job under LinkedIn's Hybrid filter too, but that specific posting's own pill happened to read 'Remote' — no literal 'Hybrid' pill was observed, though the code path is identical for all three values). Like title/company, there is NO stable selector reachable here at all — every element up the tree from the location text is fully hashed with no data-testid/componentkey (confirmed by walking the DOM by hand), so this can't be expressed as a plain selectors array the way other platforms are. Location and modality are instead resolved in code (see resolveLocationAndModality() in linkedin.ts) by walking up from the stable company-profile link (companySelectors' 'a[href*=\"/company/\"]') to the nearby bullet-separated metadata line ('{location} · {posted} · {applicants}') and, a couple of levels further out, an exact-text workplace-type pill ('Remote'/'Hybrid'/'On-site') — guarded with both a `.closest('nav')` exclusion (the search-results filter sidebar reuses the exact same words as its own filter-chip labels) and a distinct-company-profile-link bound on the widening scope (stops before the scope could span into a sibling job card's own metadata on the split-pane view — a single job card can legitimately have a second bullet-separated line of its own, e.g. 'Promoted by hirer · Responses managed off LinkedIn', so bounding on company links rather than bullet-line count was necessary; verified live against both failure modes). Hrefs are compared by pathname only (stripping query string) before dedup, since a company's logo-anchor and text-anchor can carry different tracking parameters on an otherwise-identical link, which would otherwise make one job's own card look like two companies. modalityTextMatches below is still used by that function's detectModality() call.",
+
+  "modalityTextMatches": {
+    "hybrid": ["hybrid"],
+    "remote": ["remote"],
+    "on_site": ["on-site", "onsite", "in person", "in-person"]
+  },
+
   "easyApplyTextMatches": ["easy apply"],
 
   "externalApplyTextMatches": ["apply on company website", "apply on company site"],

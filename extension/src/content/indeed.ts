@@ -1,6 +1,7 @@
 import selectors from '../shared/selectors/indeed.json';
 import { createLogger } from '../shared/debug';
-import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
+import { detectModality } from '../shared/modality';
+import type { CurrentJobInfo, DetectedApplication, Modality, RuntimeMessage } from '../shared/types';
 
 // Runs on *.indeed.com and smartapply.indeed.com (see manifest.config.ts).
 //
@@ -60,12 +61,23 @@ interface JobMeta {
   job_url: string;
   jk?: string;
   job_description?: string;
+  location?: string;
+  modality?: Modality;
 }
 
 // Job description text, captured so the user doesn't have to paste it in
 // manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
 function currentJobDescription(): string | undefined {
   return textOf(firstMatch(selectors.jobDescriptionSelectors)) || undefined;
+}
+
+function currentJobLocation(): string | undefined {
+  return textOf(firstMatch(selectors.locationSelectors)) || undefined;
+}
+
+function currentJobModality(): Modality | undefined {
+  const container = firstMatch(selectors.modalityContainerSelectors);
+  return container ? detectModality(container.textContent ?? '', selectors.modalityTextMatches) : undefined;
 }
 
 const LAST_VIEWED_KEY = 'lastViewedJob';
@@ -141,8 +153,18 @@ function captureJobPageMeta(): void {
 
   if (title && company) {
     const job_description = currentJobDescription();
+    const jobLocation = currentJobLocation();
+    const modality = currentJobModality();
     log('captureJobPageMeta: cached', { jk, title, company, hasDescription: Boolean(job_description) });
-    cacheJobMeta({ company, title, job_url: canonicalJobUrl(jk, location.href), jk, job_description });
+    cacheJobMeta({
+      company,
+      title,
+      job_url: canonicalJobUrl(jk, location.href),
+      jk,
+      job_description,
+      location: jobLocation,
+      modality,
+    });
     void clearStaleApplyInProgress(jk);
   } else if (jk) {
     log('captureJobPageMeta: title/company selectors did not match', { jk, title, company });
@@ -172,6 +194,8 @@ function attachInPlatformApplyListener(): void {
           job_url: canonicalJobUrl(jk, location.href),
           jk,
           job_description,
+          location: currentJobLocation(),
+          modality: currentJobModality(),
         });
         log('applyInProgress set', { jk, title, company });
       });
@@ -197,6 +221,8 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
   let company = textOf(firstMatch(selectors.companySelectors));
   let jobUrl = canonicalJobUrl(jk, location.href);
   let jobDescription = currentJobDescription();
+  let jobLocation = currentJobLocation();
+  let modality = currentJobModality();
   let resolvedJk = jk;
   if (!title || !company) {
     const last = await getLastViewedJob();
@@ -206,6 +232,8 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
       resolvedJk = resolvedJk ?? last.jk;
       jobUrl = last.job_url ?? jobUrl;
       jobDescription = jobDescription || last.job_description;
+      jobLocation = jobLocation || last.location;
+      modality = modality ?? last.modality;
     }
   }
   if (!title || !company) {
@@ -226,6 +254,8 @@ async function reportExternalApply(jk: string | undefined): Promise<void> {
     apply_method: 'external_redirect',
     status: 'pending_confirmation',
     job_description: jobDescription,
+    location: jobLocation,
+    modality,
   });
 }
 
@@ -314,6 +344,8 @@ function observeForConfirmation(): void {
         // if the click handler itself never captured one.
         const resolvedJk = applyState.jk ?? jk ?? cachedByJk?.jk;
         const jobDescription = applyState.job_description ?? cachedByJk?.job_description;
+        const jobLocation = applyState.location ?? cachedByJk?.location;
+        const modality = applyState.modality ?? cachedByJk?.modality;
 
         // No client-side dedupe cache: the backend upserts on
         // platform+platform_job_id, so a repeat report merges into the
@@ -328,6 +360,8 @@ function observeForConfirmation(): void {
           apply_method: 'in_platform',
           status: 'applied',
           job_description: jobDescription,
+          location: jobLocation,
+          modality,
         });
 
         // The application is recorded — this apply flow is done. Clear the frozen
@@ -366,6 +400,8 @@ function attachManualMarkListener(): void {
       apply_method: 'manual',
       status: 'applied',
       job_description: currentJobDescription(),
+      location: currentJobLocation(),
+      modality: currentJobModality(),
     });
   });
 }
@@ -390,6 +426,8 @@ function attachCurrentJobProvider(): void {
       job_url: canonicalJobUrl(jk, location.href),
       platform_job_id: jk,
       job_description: currentJobDescription(),
+      location: currentJobLocation(),
+      modality: currentJobModality(),
     };
     sendResponse(job);
     return false;

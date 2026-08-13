@@ -63,6 +63,8 @@ export async function createPendingApplication(job: CurrentJobInfo): Promise<App
     apply_method: 'external_redirect',
     status: 'pending_confirmation',
     job_description: job.job_description,
+    location: job.location,
+    modality: job.modality,
   };
   const res = await fetch(`${base}/applications`, {
     method: 'POST',

@@ -1,4 +1,4 @@
-import type { Status, ApplyMethod, Platform } from './types';
+import type { Status, ApplyMethod, Platform, Modality } from './types';
 
 export const STATUS_LABELS: Record<Status, string> = {
   applied: 'Applied',
@@ -21,6 +21,12 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   linkedin: 'LinkedIn',
   glassdoor: 'Glassdoor',
   manual: 'Manual',
+};
+
+export const MODALITY_LABELS: Record<Modality, string> = {
+  on_site: 'On-site',
+  hybrid: 'Hybrid',
+  remote: 'Remote',
 };
 
 export function formatDate(iso: string): string {

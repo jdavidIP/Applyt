@@ -1,9 +1,10 @@
-import { PLATFORMS, APPLY_METHODS, STATUSES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS } from './types.js';
+import { PLATFORMS, APPLY_METHODS, STATUSES, MODALITIES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS } from './types.js';
 
 // Fastify JSON schemas for request bodies/queries. Enum sets are sourced from
 // types.ts so they cannot drift from the domain unions (and, in turn, the SQLite schema).
 
 const nullableString = { type: ['string', 'null'] } as const;
+const nullableModality = { type: ['string', 'null'], enum: [...MODALITIES, null] } as const;
 
 export const createApplicationSchema = {
   type: 'object',
@@ -20,6 +21,8 @@ export const createApplicationSchema = {
     date_applied: { type: 'string', minLength: 1 },
     notes: nullableString,
     job_description: nullableString,
+    location: nullableString,
+    modality: nullableModality,
   },
 } as const;
 
@@ -38,6 +41,8 @@ export const updateApplicationSchema = {
     date_applied: { type: 'string', minLength: 1 },
     notes: nullableString,
     job_description: nullableString,
+    location: nullableString,
+    modality: nullableModality,
   },
 } as const;
 

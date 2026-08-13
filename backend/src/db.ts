@@ -42,6 +42,14 @@ function migrate(db: Database.Database): void {
     db.exec('ALTER TABLE applications ADD COLUMN job_description TEXT');
   }
 
+  // Location + modality: free-text location and on_site/hybrid/remote.
+  if (!hasColumn('applications', 'location')) {
+    db.exec('ALTER TABLE applications ADD COLUMN location TEXT');
+  }
+  if (!hasColumn('applications', 'modality')) {
+    db.exec('ALTER TABLE applications ADD COLUMN modality TEXT');
+  }
+
   // Phase 4 cost tracking: record what each tailor run consumed and cost.
   if (!hasColumn('resume_versions', 'model')) {
     db.exec('ALTER TABLE resume_versions ADD COLUMN model TEXT');

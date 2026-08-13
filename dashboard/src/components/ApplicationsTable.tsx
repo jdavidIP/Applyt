@@ -1,6 +1,6 @@
 import { IconSparkles, IconEdit, IconTrash } from '@tabler/icons-react';
 import type { Application, Status } from '../types';
-import { PLATFORM_LABELS, APPLY_METHOD_LABELS, formatDate } from '../labels';
+import { PLATFORM_LABELS, APPLY_METHOD_LABELS, MODALITY_LABELS, formatDate } from '../labels';
 import { StatusDropdown } from './StatusDropdown';
 
 interface Props {
@@ -34,7 +34,8 @@ export function ApplicationsTable({
             <th className={thClass}>Company</th>
             <th className={thClass}>Title</th>
             <th className={thClass}>Platform</th>
-            <th className={thClass}>Method</th>
+            <th className={thClass}>Location</th>
+            <th className={thClass}>Modality</th>
             <th className={thClass}>Status</th>
             <th className={thClass}>Applied</th>
             <th className={thClass}>Updated</th>
@@ -66,9 +67,9 @@ export function ApplicationsTable({
                 )}
               </td>
               <td className="px-4 py-4">{app.title}</td>
-              <td className="px-4 py-4 text-ink-soft">{PLATFORM_LABELS[app.platform]}</td>
-              <td className="px-4 py-4">
-                {APPLY_METHOD_LABELS[app.apply_method]}
+              <td className="px-4 py-4 text-ink-soft">
+                {PLATFORM_LABELS[app.platform]}
+                <span className="text-[11px] text-ink-soft/70"> · {APPLY_METHOD_LABELS[app.apply_method]}</span>
                 {app.status === 'pending_confirmation' && (
                   <span
                     className="text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded ml-1.5"
@@ -78,6 +79,8 @@ export function ApplicationsTable({
                   </span>
                 )}
               </td>
+              <td className="px-4 py-4 text-ink-soft">{app.location ?? '—'}</td>
+              <td className="px-4 py-4 text-ink-soft">{app.modality ? MODALITY_LABELS[app.modality] : '—'}</td>
               <td className="px-4 py-4">
                 <StatusDropdown
                   value={app.status}
