@@ -57,6 +57,7 @@ function buildQuery(filters: Filters): string {
   const params = new URLSearchParams();
   if (filters.platform) params.set('platform', filters.platform);
   if (filters.status) params.set('status', filters.status);
+  if (filters.search?.trim()) params.set('search', filters.search.trim());
   params.set('sort', filters.sort);
   params.set('order', filters.order);
   params.set('page', String(filters.page));

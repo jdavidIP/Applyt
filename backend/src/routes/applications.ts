@@ -65,6 +65,12 @@ interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
 }
 
+// Search bar: strips spaces/hyphens so "Full Stack", "Full-Stack", and
+// "Fullstack" are treated as equivalent on both sides of the LIKE comparison.
+function normalizeForSearch(text: string): string {
+  return text.trim().replace(/[\s-]+/g, "");
+}
+
 // Issue #12: job descriptions arrive as raw scraped textContent (extension) or
 // pasted text (manual add/edit) with irregular interior whitespace from the
 // source page's block elements. Normalized once here so every write path
@@ -227,7 +233,7 @@ export default async function applicationsRoutes(
     "/applications",
     { schema: { querystring: listApplicationsQuerySchema } },
     async (request) => {
-      const { platform, status, sort, order, page = 1, pageSize = 25 } = request.query;
+      const { platform, status, search, sort, order, page = 1, pageSize = 25 } = request.query;
       const where: string[] = [];
       const params: Record<string, string> = {};
       if (platform) {
@@ -237,6 +243,16 @@ export default async function applicationsRoutes(
       if (status) {
         where.push("status = @status");
         params.status = status;
+      }
+      if (search?.trim()) {
+        // Strip spaces/hyphens from both sides so "Full Stack", "Full-Stack",
+        // and "Fullstack" all match each other — still an exact substring
+        // match post-normalization, not fuzzy/typo-tolerant, so it doesn't
+        // trade away precision.
+        where.push(
+          "(REPLACE(REPLACE(company, ' ', ''), '-', '') LIKE @search OR REPLACE(REPLACE(title, ' ', ''), '-', '') LIKE @search)",
+        );
+        params.search = `%${normalizeForSearch(search)}%`;
       }
       const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "";
       const sortCol =
