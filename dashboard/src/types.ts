@@ -53,6 +53,7 @@ export interface ApplicationInput {
 export interface Filters {
   platform?: Platform | '';
   status?: Status | '';
+  search?: string;
   sort: 'date_applied' | 'date_last_updated';
   order: 'asc' | 'desc';
   page: number;

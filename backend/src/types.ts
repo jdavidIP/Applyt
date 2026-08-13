@@ -88,6 +88,7 @@ export interface UpdateApplicationBody {
 export interface ListApplicationsQuery {
   platform?: Platform;
   status?: Status;
+  search?: string;
   sort?: 'date_applied' | 'date_last_updated';
   order?: 'asc' | 'desc';
   page?: number;

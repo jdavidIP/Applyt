@@ -52,6 +52,40 @@ describe('api request()', () => {
   });
 });
 
+describe('api.list query string (buildQuery)', () => {
+  const originalFetch = global.fetch;
+  const baseFilters = { sort: 'date_applied', order: 'desc', page: 1 } as const;
+
+  beforeEach(() => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 25 }), { status: 200 }),
+    ) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('omits the search param when search is unset', async () => {
+    await api.list({ ...baseFilters });
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).not.toContain('search=');
+  });
+
+  test('omits the search param when search is blank/whitespace-only', async () => {
+    await api.list({ ...baseFilters, search: '   ' });
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).not.toContain('search=');
+  });
+
+  test('trims search before adding it to the query string', async () => {
+    await api.list({ ...baseFilters, search: '  Full Stack  ' });
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const qs = new URLSearchParams((url as string).split('?')[1]);
+    expect(qs.get('search')).toBe('Full Stack');
+  });
+});
+
 // Phase 3 lifecycle actions (CLAUDE.md §7): mark-stale, bulk-delete-by-status,
 // and stats. Pinning the request shape (method, URL, body) the same way the
 // pre-existing suite above does for create/update/remove.

@@ -75,6 +75,7 @@ export const listApplicationsQuerySchema = {
   properties: {
     platform: { type: 'string', enum: [...PLATFORMS] },
     status: { type: 'string', enum: [...STATUSES] },
+    search: { type: 'string' },
     sort: { type: 'string', enum: ['date_applied', 'date_last_updated'] },
     order: { type: 'string', enum: ['asc', 'desc'] },
     page: { type: 'integer', minimum: 1, default: 1 },

@@ -220,6 +220,63 @@ test('GET lists applications and filters by platform and status', async () => {
   assert.equal((byStatus.json() as { items: Application[] }).items.length, 1);
 });
 
+test('GET filters by search across company and title, case-insensitively', async () => {
+  await createSample({ company: 'Acme Corp', title: 'Backend Engineer', platform_job_id: 'search-1' });
+  await createSample({ company: 'Globex', title: 'Frontend Acme Specialist', platform_job_id: 'search-2' });
+  await createSample({ company: 'Initech', title: 'Designer', platform_job_id: 'search-3' });
+
+  const byCompany = await app.inject({ method: 'GET', url: '/applications?search=acme' });
+  assert.equal((byCompany.json() as { items: Application[]; total: number }).total, 2);
+
+  const byTitle = await app.inject({ method: 'GET', url: '/applications?search=Designer' });
+  const titleRows = (byTitle.json() as { items: Application[] }).items;
+  assert.equal(titleRows.length, 1);
+  assert.equal(titleRows[0].company, 'Initech');
+
+  const noMatch = await app.inject({ method: 'GET', url: '/applications?search=doesnotexist' });
+  assert.equal((noMatch.json() as { items: Application[] }).items.length, 0);
+});
+
+test('GET search treats spacing/hyphenation variants as equivalent ("Full Stack" ~ "Full-Stack" ~ "Fullstack")', async () => {
+  await createSample({ title: 'Full-Stack Engineer', platform_job_id: 'fs-1' });
+  await createSample({ title: 'Fullstack Developer', platform_job_id: 'fs-2' });
+  await createSample({ title: 'Backend Engineer', platform_job_id: 'fs-3' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications?search=Full%20Stack' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 2);
+  assert.ok(body.items.every((a) => a.title !== 'Backend Engineer'));
+
+  // And the reverse: a hyphenated query still finds the space-separated variant.
+  const reverse = await app.inject({ method: 'GET', url: '/applications?search=Full-Stack' });
+  assert.equal((reverse.json() as { items: Application[] }).total, 2);
+});
+
+test('GET search treats a literal _ in the query as a literal character, not a LIKE single-char wildcard', async () => {
+  // If "_" were passed through unescaped, it would match ANY single
+  // character in that position — so "AB_CD" would wrongly also match
+  // "ABXCD" (no underscore at all, just some other char in that slot).
+  await createSample({ company: 'AB_CD Inc', platform_job_id: 'wc-1' });
+  await createSample({ company: 'ABXCD Inc', platform_job_id: 'wc-2' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications?search=AB_CD' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 1);
+  assert.equal(body.items[0].company, 'AB_CD Inc');
+});
+
+test('GET search treats a literal % in the query as a literal character, not a LIKE any-run wildcard', async () => {
+  // If "%" were passed through unescaped, it would match any run of
+  // characters — so "100%Done" would wrongly also match "100xyzDone".
+  await createSample({ company: '100%Done Corp', platform_job_id: 'wc-3' });
+  await createSample({ company: '100xyzDone Corp', platform_job_id: 'wc-4' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications?search=100%25Done' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 1);
+  assert.equal(body.items[0].company, '100%Done Corp');
+});
+
 test('GET paginates results with page/pageSize and reports total', async () => {
   for (let i = 0; i < 5; i++) {
     await createSample({ platform_job_id: `page-${i}`, company: `Co${i}` });
