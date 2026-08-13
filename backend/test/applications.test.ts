@@ -114,6 +114,37 @@ test('PATCH normalizes messy job_description whitespace (Issue #12)', async () =
   assert.equal(updated.job_description, 'Para one\n\nPara two');
 });
 
+test('POST saves location and modality, PATCH updates them', async () => {
+  const created = await createSample({ location: 'Toronto, ON', modality: 'hybrid' });
+  assert.equal(created.location, 'Toronto, ON');
+  assert.equal(created.modality, 'hybrid');
+
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/applications/${created.id}`,
+    payload: { location: 'Remote', modality: 'remote' },
+  });
+  assert.equal(res.statusCode, 200);
+  const updated = res.json() as Application;
+  assert.equal(updated.location, 'Remote');
+  assert.equal(updated.modality, 'remote');
+});
+
+test('POST defaults location and modality to null when omitted', async () => {
+  const created = await createSample();
+  assert.equal(created.location, null);
+  assert.equal(created.modality, null);
+});
+
+test('POST rejects an invalid modality enum value', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/applications',
+    payload: { company: 'Bad Modality Co', title: 'Dev', modality: 'from_the_moon' },
+  });
+  assert.equal(res.statusCode, 400);
+});
+
 test('POST with an existing platform+platform_job_id updates instead of duplicating', async () => {
   // External redirect logged as pending_confirmation…
   const first = await createSample({

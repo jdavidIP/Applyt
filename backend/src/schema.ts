@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS applications (
   date_last_updated TEXT NOT NULL,
   notes TEXT,
   job_description TEXT,                          -- pasted/edited JD text; the tailoring input (Phase 4)
+  location TEXT,                                 -- free-text job location, e.g. "Toronto, ON" or "Remote"
+  modality TEXT,                                 -- 'on_site' | 'hybrid' | 'remote'
   resume_version_id INTEGER REFERENCES resume_versions(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

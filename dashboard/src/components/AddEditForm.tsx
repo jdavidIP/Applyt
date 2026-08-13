@@ -3,10 +3,11 @@ import {
   PLATFORMS,
   APPLY_METHODS,
   STATUSES,
+  MODALITIES,
   type Application,
   type ApplicationInput,
 } from '../types';
-import { PLATFORM_LABELS, APPLY_METHOD_LABELS, STATUS_LABELS } from '../labels';
+import { PLATFORM_LABELS, APPLY_METHOD_LABELS, STATUS_LABELS, MODALITY_LABELS } from '../labels';
 import { Modal } from './Modal';
 
 interface Props {
@@ -27,6 +28,8 @@ function initialState(editing: Application | null): ApplicationInput {
       status: editing.status,
       notes: editing.notes ?? '',
       job_description: editing.job_description ?? '',
+      location: editing.location ?? '',
+      modality: editing.modality ?? null,
     };
   }
   return {
@@ -39,6 +42,8 @@ function initialState(editing: Application | null): ApplicationInput {
     status: 'applied',
     notes: '',
     job_description: '',
+    location: '',
+    modality: null,
   };
 }
 
@@ -72,6 +77,8 @@ export function AddEditForm({ editing, onSubmit, onCancel }: Props) {
         platform_job_id: form.platform_job_id?.trim() || null,
         notes: form.notes?.trim() || null,
         job_description: form.job_description?.trim() || null,
+        location: form.location?.trim() || null,
+        modality: form.modality || null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save.');
@@ -165,6 +172,30 @@ export function AddEditForm({ editing, onSubmit, onCancel }: Props) {
             onChange={(e) => set('job_url', e.target.value)}
             placeholder="https://…"
           />
+        </label>
+        <label className="col-span-1">
+          <span className={labelClass}>Location</span>
+          <input
+            className="input-field"
+            value={form.location ?? ''}
+            onChange={(e) => set('location', e.target.value)}
+            placeholder="City, ST or Remote"
+          />
+        </label>
+        <label className="col-span-1">
+          <span className={labelClass}>Modality</span>
+          <select
+            className="input-field"
+            value={form.modality ?? ''}
+            onChange={(e) => set('modality', (e.target.value || null) as ApplicationInput['modality'])}
+          >
+            <option value="">Unspecified</option>
+            {MODALITIES.map((m) => (
+              <option key={m} value={m}>
+                {MODALITY_LABELS[m]}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="col-span-2">
           <span className={labelClass}>Notes</span>

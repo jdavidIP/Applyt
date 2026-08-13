@@ -472,11 +472,11 @@ export default async function applicationsRoutes(
           `INSERT INTO applications
              (platform, company, title, job_url, platform_job_id, apply_method,
               status, date_applied, date_last_updated, notes, job_description,
-              created_at, updated_at)
+              location, modality, created_at, updated_at)
            VALUES
              (@platform, @company, @title, @job_url, @platform_job_id, @apply_method,
               @status, @date_applied, @date_last_updated, @notes, @job_description,
-              @created_at, @updated_at)`,
+              @location, @modality, @created_at, @updated_at)`,
         )
         .run({
           platform,
@@ -490,6 +490,8 @@ export default async function applicationsRoutes(
           date_last_updated: now,
           notes: b.notes ?? null,
           job_description: normalizeJobDescription(b.job_description),
+          location: b.location ?? null,
+          modality: b.modality ?? null,
           created_at: now,
           updated_at: now,
         });
@@ -528,6 +530,8 @@ export default async function applicationsRoutes(
         "date_applied",
         "notes",
         "job_description",
+        "location",
+        "modality",
       ];
       for (const key of settable) {
         if (Object.prototype.hasOwnProperty.call(b, key)) {
