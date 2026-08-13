@@ -18,6 +18,24 @@
     "[data-testid='jobsearch-JobComponent-description']"
   ],
 
+  "_locationModalityComment": "Verified live 2026-08-13 against a real posting (indeed.com/viewjob). Location has a stable data-testid. The workplace-type chip ('Hybrid work' / 'Remote' / etc.) has NO stable selector of its own — it's a bare unlabeled div — so it's matched by text, scoped to the company-info header block to avoid false-matching the job description body.",
+
+  "locationSelectors": [
+    "[data-testid='job-location']",
+    "[data-testid='inlineHeader-companyLocation']"
+  ],
+
+  "modalityContainerSelectors": [
+    "[data-testid='jobsearch-CompanyInfoContainer']",
+    ".jobsearch-CompanyInfoContainer"
+  ],
+
+  "modalityTextMatches": {
+    "hybrid": ["hybrid"],
+    "remote": ["remote"],
+    "on_site": ["on-site", "onsite", "in person", "in-person"]
+  },
+
   "inPlatformApplyButtonSelectors": [
     "#indeedApplyButton",
     "[data-testid='indeedApplyButton']",

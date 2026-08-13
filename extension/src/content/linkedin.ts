@@ -1,6 +1,7 @@
 import selectors from '../shared/selectors/linkedin.json';
 import { createLogger } from '../shared/debug';
-import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
+import { detectModality } from '../shared/modality';
+import type { CurrentJobInfo, DetectedApplication, Modality, RuntimeMessage } from '../shared/types';
 
 // Runs on linkedin.com/jobs/* (see manifest.config.ts).
 //
@@ -88,12 +89,53 @@ interface JobMeta {
   job_url: string;
   jobId?: string;
   job_description?: string;
+  location?: string;
+  modality?: Modality;
 }
 
 // Job description text, captured so the user doesn't have to paste it in
 // manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
 function currentJobDescription(): string | undefined {
   return textOf(firstMatch(selectors.jobDescriptionSelectors)) || undefined;
+}
+
+// Location and modality, resolved in code rather than via selectors.json:
+// verified live 2026-08-13 that every element from the location text up to
+// the page root is fully hashed here (no data-testid/componentkey anywhere),
+// same as the title/company problem parseFromDocumentTitle already works
+// around — a plain selector string genuinely cannot survive a deploy on this
+// view. Instead this walks up from the stable company-profile link
+// (companySelectors' 'a[href*="/company/"]') to find the nearby
+// bullet-separated metadata line ("{location} · {posted} · {applicants}"),
+// then looks a little further out for an exact-text workplace-type pill
+// ("Remote"/"Hybrid"/"On-site"). The `.closest('nav')` guard is load-bearing:
+// the search-results filter sidebar has its own "Remote"/"Hybrid" filter-chip
+// labels with the exact same text, which would otherwise false-positive
+// modality detection whenever the user has a workplace-type filter active.
+function resolveLocationAndModality(): { location?: string; modality?: Modality } {
+  const companyLink = firstMatch(selectors.companySelectors);
+  let scope: Element | null = companyLink;
+  let locationLine: Element | null = null;
+  for (let i = 0; i < 6 && scope && !locationLine; i++) {
+    scope = scope.parentElement;
+    if (!scope) break;
+    locationLine =
+      Array.from(scope.querySelectorAll('p')).find((p) => (p.textContent ?? '').includes('·')) ?? null;
+  }
+  const location = locationLine ? (locationLine.textContent ?? '').split('·')[0].trim() || undefined : undefined;
+
+  let modalityScope: Element | null = locationLine;
+  let modality: Modality | undefined;
+  for (let i = 0; i < 5 && modalityScope && !modality; i++) {
+    modalityScope = modalityScope.parentElement;
+    if (!modalityScope) break;
+    const pill = Array.from(modalityScope.querySelectorAll('*')).find((el) => {
+      const text = (el.textContent ?? '').trim();
+      return el.children.length === 0 && text.length < 20 && !el.closest('nav') && detectModality(text, selectors.modalityTextMatches) !== undefined;
+    });
+    if (pill) modality = detectModality((pill.textContent ?? '').trim(), selectors.modalityTextMatches);
+  }
+  return { location, modality };
 }
 
 const LAST_VIEWED_KEY = 'linkedinLastViewedJob';
@@ -144,6 +186,7 @@ function captureJobPageMeta(): void {
 
   if (title && company) {
     const job_description = currentJobDescription();
+    const { location: jobLocation, modality } = resolveLocationAndModality();
     log('captureJobPageMeta: cached', { jobId, title, company, hasDescription: Boolean(job_description) });
     cacheJobMeta({
       company,
@@ -151,6 +194,8 @@ function captureJobPageMeta(): void {
       job_url: canonicalJobUrl(jobId, location.href),
       jobId,
       job_description,
+      location: jobLocation,
+      modality,
     });
   } else {
     log('captureJobPageMeta: title/company not resolved', { jobId, title, company });
@@ -183,6 +228,7 @@ async function reportExternalApply(jobId: string | undefined): Promise<void> {
   let { title, company } = resolveTitleAndCompany();
   let jobUrl = canonicalJobUrl(jobId, location.href);
   let jobDescription = currentJobDescription();
+  let { location: jobLocation, modality } = resolveLocationAndModality();
   let resolvedJobId = jobId;
   if (!title || !company) {
     const last = await getLastViewedJob();
@@ -192,6 +238,8 @@ async function reportExternalApply(jobId: string | undefined): Promise<void> {
       resolvedJobId = resolvedJobId ?? last.jobId;
       jobUrl = last.job_url ?? jobUrl;
       jobDescription = jobDescription || last.job_description;
+      jobLocation = jobLocation || last.location;
+      modality = modality ?? last.modality;
     }
   }
   if (!title || !company) {
@@ -209,6 +257,8 @@ async function reportExternalApply(jobId: string | undefined): Promise<void> {
     title,
     job_url: jobUrl,
     platform_job_id: resolvedJobId,
+    location: jobLocation,
+    modality,
     apply_method: 'external_redirect',
     status: 'pending_confirmation',
     job_description: jobDescription,
@@ -236,12 +286,15 @@ function attachApplyClickDelegation(): void {
           log('easy apply click but no title/company resolved — dropping');
           return;
         }
+        const resolved = resolveLocationAndModality();
         void setApplyInProgress({
           company,
           title,
           job_url: canonicalJobUrl(jobId, location.href),
           jobId,
           job_description: currentJobDescription(),
+          location: resolved.location,
+          modality: resolved.modality,
         });
         log('applyInProgress set', { jobId, title, company });
       } else {
@@ -340,6 +393,8 @@ function observeForConfirmation(): void {
           apply_method: 'in_platform',
           status: 'applied',
           job_description: applyState.job_description,
+          location: applyState.location,
+          modality: applyState.modality,
         });
 
         // The application is recorded — this apply flow is done. Clear the
@@ -384,6 +439,7 @@ function attachManualMarkListener(): void {
     const { title, company } = resolveTitleAndCompany();
     if (!title || !company) return;
 
+    const resolved = resolveLocationAndModality();
     report({
       platform: 'linkedin',
       company,
@@ -393,6 +449,8 @@ function attachManualMarkListener(): void {
       apply_method: 'manual',
       status: 'applied',
       job_description: currentJobDescription(),
+      location: resolved.location,
+      modality: resolved.modality,
     });
   });
 }
@@ -407,6 +465,7 @@ function attachCurrentJobProvider(): void {
     const jobId = currentJobId();
     const { title, company } = resolveTitleAndCompany();
     if (!title || !company) return false;
+    const resolved = resolveLocationAndModality();
     const job: CurrentJobInfo = {
       platform: 'linkedin',
       company,
@@ -414,6 +473,8 @@ function attachCurrentJobProvider(): void {
       job_url: canonicalJobUrl(jobId, location.href),
       platform_job_id: jobId,
       job_description: currentJobDescription(),
+      location: resolved.location,
+      modality: resolved.modality,
     };
     sendResponse(job);
     return false;

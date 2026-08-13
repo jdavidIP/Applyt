@@ -27,6 +27,14 @@
     ".jobs-description-content__text"
   ],
 
+  "_locationModalityComment": "VERIFIED LIVE 2026-08-13 against a real authenticated session, both the standalone /jobs/view/ page and the /jobs/search-results/ split pane. Location verified on multiple postings; modality verified on a real 'On-site' pill and a real 'Remote' pill (checked a job under LinkedIn's Hybrid filter too, but that specific posting's own pill happened to read 'Remote' — no literal 'Hybrid' pill was observed, though the code path is identical for all three values). Like title/company, there is NO stable selector reachable here at all — every element up the tree from the location text is fully hashed with no data-testid/componentkey (confirmed by walking the DOM by hand), so this can't be expressed as a plain selectors array the way other platforms are. Location and modality are instead resolved in code (see resolveLocationAndModality() in linkedin.ts) by walking up from the stable company-profile link (companySelectors' 'a[href*=\"/company/\"]') to the nearby bullet-separated metadata line ('{location} · {posted} · {applicants}') and, a couple of levels further out, an exact-text workplace-type pill ('Remote'/'Hybrid'/'On-site') — guarded with a `.closest('nav')` exclusion, since the search-results filter sidebar reuses the exact same words as its own filter-chip labels and would otherwise false-positive whenever a workplace-type filter is active. modalityTextMatches below is still used by that function's detectModality() call.",
+
+  "modalityTextMatches": {
+    "hybrid": ["hybrid"],
+    "remote": ["remote"],
+    "on_site": ["on-site", "onsite", "in person", "in-person"]
+  },
+
   "easyApplyTextMatches": ["easy apply"],
 
   "externalApplyTextMatches": ["apply on company website", "apply on company site"],

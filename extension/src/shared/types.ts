@@ -3,6 +3,7 @@
 // bundled separately from the backend and ships to the Chrome Web Store.
 export type Platform = 'indeed' | 'linkedin' | 'glassdoor' | 'manual';
 export type ApplyMethod = 'in_platform' | 'external_redirect' | 'manual';
+export type Modality = 'on_site' | 'hybrid' | 'remote';
 
 export interface DetectedApplication {
   platform: Platform;
@@ -15,6 +16,10 @@ export interface DetectedApplication {
   // Captured from the job posting page so the user doesn't have to paste it in
   // manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
   job_description?: string;
+  // Best-effort: absent when the page's location/modality signal can't be
+  // resolved (selectors miss, or the posting genuinely doesn't show one).
+  location?: string;
+  modality?: Modality;
 }
 
 // The subset of a job posting the popup needs to tailor against it — the same
@@ -28,6 +33,8 @@ export interface CurrentJobInfo {
   job_url: string;
   platform_job_id?: string;
   job_description?: string;
+  location?: string;
+  modality?: Modality;
 }
 
 // Messages the background/popup exchange with content scripts.

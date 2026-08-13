@@ -1,6 +1,7 @@
 import selectors from '../shared/selectors/glassdoor.json';
 import { createLogger } from '../shared/debug';
-import type { CurrentJobInfo, DetectedApplication, RuntimeMessage } from '../shared/types';
+import { detectModality } from '../shared/modality';
+import type { CurrentJobInfo, DetectedApplication, Modality, RuntimeMessage } from '../shared/types';
 
 // Runs on glassdoor.com job pages AND smartapply.indeed.com (see
 // manifest.config.ts) — Glassdoor is Indeed-owned, and per CLAUDE.md §6 its
@@ -132,12 +133,23 @@ interface JobMeta {
   job_url: string;
   listingId?: string;
   job_description?: string;
+  location?: string;
+  modality?: Modality;
 }
 
 // Job description text, captured so the user doesn't have to paste it in
 // manually before using AI resume tailoring (Phase 4, CLAUDE.md §7).
 function currentJobDescription(): string | undefined {
   return textOf(firstMatch(selectors.jobDescriptionSelectors)) || undefined;
+}
+
+function currentJobLocation(): string | undefined {
+  return textOf(firstMatch(selectors.locationSelectors)) || undefined;
+}
+
+function currentJobModality(): Modality | undefined {
+  const container = firstMatch(selectors.modalityContainerSelectors);
+  return container ? detectModality(container.textContent ?? '', selectors.modalityTextMatches) : undefined;
 }
 
 const LAST_VIEWED_KEY = 'glassdoorLastViewedJob';
@@ -197,7 +209,15 @@ function captureJobPageMeta(): void {
     // This cache is consumed only as a title/company/listingId fallback by the
     // external-redirect path; its job_url isn't used there (that path rebuilds
     // the URL from the resolved listing id), so exactJobUrl is fine here too.
-    cacheJobMeta({ company, title, job_url: exactJobUrl(listingId), listingId, job_description });
+    cacheJobMeta({
+      company,
+      title,
+      job_url: exactJobUrl(listingId),
+      listingId,
+      job_description,
+      location: currentJobLocation(),
+      modality: currentJobModality(),
+    });
   } else {
     log('captureJobPageMeta: title/company not resolved', { listingId, title, company });
   }
@@ -224,6 +244,8 @@ function classifyApplyClick(el: Element): 'easy_apply' | 'external' | undefined 
 async function reportExternalApply(listingId: string | undefined): Promise<void> {
   let { title, company } = resolveTitleAndCompany();
   let jobDescription = currentJobDescription();
+  let jobLocation = currentJobLocation();
+  let modality = currentJobModality();
   let resolvedListingId = listingId;
   if (!title || !company) {
     const last = await getLastViewedJob();
@@ -232,6 +254,8 @@ async function reportExternalApply(listingId: string | undefined): Promise<void>
       company = company || last.company;
       resolvedListingId = resolvedListingId ?? last.listingId;
       jobDescription = jobDescription || last.job_description;
+      jobLocation = jobLocation || last.location;
+      modality = modality ?? last.modality;
     }
   }
   if (!title || !company) {
@@ -259,6 +283,8 @@ async function reportExternalApply(listingId: string | undefined): Promise<void>
     apply_method: 'external_redirect',
     status: 'pending_confirmation',
     job_description: jobDescription,
+    location: jobLocation,
+    modality,
   });
 }
 
@@ -303,6 +329,8 @@ function attachApplyClickDelegation(): void {
           job_url: exactJobUrl(listingId),
           listingId,
           job_description: currentJobDescription(),
+          location: currentJobLocation(),
+          modality: currentJobModality(),
         });
         log('applyInProgress set', { listingId, title, company });
       } else {
@@ -398,6 +426,8 @@ function observeForConfirmation(): void {
           apply_method: 'in_platform',
           status: 'applied',
           job_description: applyState.job_description,
+          location: applyState.location,
+          modality: applyState.modality,
         });
 
         // The application is recorded — this apply flow is done. Clear the
@@ -453,6 +483,8 @@ function attachManualMarkListener(): void {
       apply_method: 'manual',
       status: 'applied',
       job_description: currentJobDescription(),
+      location: currentJobLocation(),
+      modality: currentJobModality(),
     });
   });
 }
@@ -475,6 +507,8 @@ function attachCurrentJobProvider(): void {
       job_url: exactJobUrl(listingId),
       platform_job_id: listingId,
       job_description: currentJobDescription(),
+      location: currentJobLocation(),
+      modality: currentJobModality(),
     };
     sendResponse(job);
     return false;
