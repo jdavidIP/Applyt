@@ -134,15 +134,33 @@ function resolveLocationAndModality(): { location?: string; modality?: Modality 
     locationLine =
       Array.from(scope.querySelectorAll('p')).find((p) => (p.textContent ?? '').includes('·')) ?? null;
   }
-  const location = locationLine ? (locationLine.textContent ?? '').split('·')[0].trim() || undefined : undefined;
+  // Named to avoid shadowing the global `location` (window.location), which
+  // the pathname-normalization below still needs to resolve relative hrefs.
+  const resolvedLocation = locationLine
+    ? (locationLine.textContent ?? '').split('·')[0].trim() || undefined
+    : undefined;
 
   let modalityScope: Element | null = locationLine;
   let modality: Modality | undefined;
   for (let i = 0; i < 5 && modalityScope && !modality; i++) {
     const next: Element | null = modalityScope.parentElement;
     if (!next) break;
+    // Normalize to pathname only: the same company's logo-anchor and
+    // text-anchor can carry different tracking query strings on the same
+    // href, which would otherwise make one job's own card look like two
+    // distinct companies and break this bound the same way the bullet-line
+    // count did.
     const companyHrefs = new Set(
-      Array.from(next.querySelectorAll("a[href*='/company/']")).map((a) => a.getAttribute('href')),
+      Array.from(next.querySelectorAll("a[href*='/company/']"))
+        .map((a) => a.getAttribute('href'))
+        .filter((href): href is string => href !== null)
+        .map((href) => {
+          try {
+            return new URL(href, location.href).pathname;
+          } catch {
+            return href;
+          }
+        }),
     );
     if (companyHrefs.size > 1) break; // widened past the open job's own card — stop before this level
     modalityScope = next;
@@ -152,7 +170,7 @@ function resolveLocationAndModality(): { location?: string; modality?: Modality 
     });
     if (pill) modality = detectModality((pill.textContent ?? '').trim(), selectors.modalityTextMatches);
   }
-  return { location, modality };
+  return { location: resolvedLocation, modality };
 }
 
 const LAST_VIEWED_KEY = 'linkedinLastViewedJob';
