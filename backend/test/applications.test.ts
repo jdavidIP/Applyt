@@ -82,6 +82,38 @@ test('POST rejects missing required fields', async () => {
   assert.equal(res.statusCode, 400);
 });
 
+test('POST normalizes messy job_description whitespace (Issue #12)', async () => {
+  const created = await createSample({
+    job_description: 'Line one   \n\n\n\nLine two\t\n\n\n\n\nLine three   ',
+  });
+  assert.equal(created.job_description, 'Line one\n\nLine two\n\nLine three');
+});
+
+test('POST strips leading indentation carried over from nested-HTML textContent scraping', async () => {
+  // Simulates element.textContent from a nested <div><p>…</p><ul><li>…</li></ul></div>
+  // job posting, where every line after the first retains source indentation.
+  const created = await createSample({
+    job_description:
+      '\n  \n    Full Stack Developer\n    \n    We are seeking a rockstar engineer.\n    \n    Requirements:\n    \n        5+ years experience\n        Knowledge of React\n    \n  \n',
+  });
+  assert.equal(
+    created.job_description,
+    'Full Stack Developer\n\nWe are seeking a rockstar engineer.\n\nRequirements:\n\n5+ years experience\nKnowledge of React',
+  );
+});
+
+test('PATCH normalizes messy job_description whitespace (Issue #12)', async () => {
+  const created = await createSample();
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/applications/${created.id}`,
+    payload: { job_description: '  Para one  \n\n\n\nPara two  ' },
+  });
+  assert.equal(res.statusCode, 200);
+  const updated = res.json() as Application;
+  assert.equal(updated.job_description, 'Para one\n\nPara two');
+});
+
 test('POST with an existing platform+platform_job_id updates instead of duplicating', async () => {
   // External redirect logged as pending_confirmation…
   const first = await createSample({
