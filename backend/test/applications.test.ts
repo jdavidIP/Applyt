@@ -89,6 +89,19 @@ test('POST normalizes messy job_description whitespace (Issue #12)', async () =>
   assert.equal(created.job_description, 'Line one\n\nLine two\n\nLine three');
 });
 
+test('POST strips leading indentation carried over from nested-HTML textContent scraping', async () => {
+  // Simulates element.textContent from a nested <div><p>…</p><ul><li>…</li></ul></div>
+  // job posting, where every line after the first retains source indentation.
+  const created = await createSample({
+    job_description:
+      '\n  \n    Full Stack Developer\n    \n    We are seeking a rockstar engineer.\n    \n    Requirements:\n    \n        5+ years experience\n        Knowledge of React\n    \n  \n',
+  });
+  assert.equal(
+    created.job_description,
+    'Full Stack Developer\n\nWe are seeking a rockstar engineer.\n\nRequirements:\n\n5+ years experience\nKnowledge of React',
+  );
+});
+
 test('PATCH normalizes messy job_description whitespace (Issue #12)', async () => {
   const created = await createSample();
   const res = await app.inject({
