@@ -65,6 +65,21 @@ interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
 }
 
+// Issue #12: job descriptions arrive as raw scraped textContent (extension) or
+// pasted text (manual add/edit) with irregular interior whitespace from the
+// source page's block elements. Normalized once here so every write path
+// (extension capture and manual paste alike) stores/feeds the AI prompt with
+// the same clean text, instead of patching each capture site separately.
+function normalizeJobDescription(text: string | null | undefined): string | null {
+  if (text == null) return null;
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[ \t]+$/, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // ---- CSV export (Issue #16) ----
 // The previous export dumped every raw DB column (internal id, resume_version_id
 // FK, created_at/updated_at bookkeeping) with no structure — "correctly
@@ -452,7 +467,7 @@ export default async function applicationsRoutes(
           date_applied,
           date_last_updated: now,
           notes: b.notes ?? null,
-          job_description: b.job_description ?? null,
+          job_description: normalizeJobDescription(b.job_description),
           created_at: now,
           updated_at: now,
         });
@@ -495,7 +510,10 @@ export default async function applicationsRoutes(
       for (const key of settable) {
         if (Object.prototype.hasOwnProperty.call(b, key)) {
           fields.push(`${key} = @${key}`);
-          params[key] = b[key] ?? null;
+          params[key] =
+            key === "job_description"
+              ? normalizeJobDescription(b[key] as string | null | undefined)
+              : (b[key] ?? null);
         }
       }
       // Always bump these on any update.
