@@ -66,9 +66,15 @@ interface RoutesOptions extends FastifyPluginOptions {
 }
 
 // Search bar: strips spaces/hyphens so "Full Stack", "Full-Stack", and
-// "Fullstack" are treated as equivalent on both sides of the LIKE comparison.
+// "Fullstack" are treated as equivalent on both sides of the LIKE comparison,
+// then escapes SQLite's own LIKE wildcards (%, _, and the escape char itself)
+// so a literal % or _ in a company/title is matched literally rather than
+// acting as a wildcard — paired with "ESCAPE '\'" on the LIKE clauses below.
 function normalizeForSearch(text: string): string {
-  return text.trim().replace(/[\s-]+/g, "");
+  return text
+    .trim()
+    .replace(/[\s-]+/g, "")
+    .replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 // Issue #12: job descriptions arrive as raw scraped textContent (extension) or
@@ -250,7 +256,7 @@ export default async function applicationsRoutes(
         // match post-normalization, not fuzzy/typo-tolerant, so it doesn't
         // trade away precision.
         where.push(
-          "(REPLACE(REPLACE(company, ' ', ''), '-', '') LIKE @search OR REPLACE(REPLACE(title, ' ', ''), '-', '') LIKE @search)",
+          "(REPLACE(REPLACE(company, ' ', ''), '-', '') LIKE @search ESCAPE '\\' OR REPLACE(REPLACE(title, ' ', ''), '-', '') LIKE @search ESCAPE '\\')",
         );
         params.search = `%${normalizeForSearch(search)}%`;
       }

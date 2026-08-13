@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PLATFORMS, STATUSES, type Filters } from '../types';
 import { PLATFORM_LABELS, STATUS_LABELS } from '../labels';
 
@@ -22,6 +22,16 @@ export function FilterBar({ filters, onChange }: Props) {
   // would otherwise fire a request per keystroke.
   const [searchText, setSearchText] = useState(filters.search ?? '');
 
+  // The debounce timer's callback fires after this render is long gone, so it
+  // must read the LATEST filters (via this ref) rather than close over the
+  // `filters` value from when the timer was scheduled — otherwise a dropdown
+  // change made during the debounce window gets silently overwritten back to
+  // its pre-change value when the stale timer finally fires.
+  const filtersRef = useRef(filters);
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
   useEffect(() => {
     setSearchText(filters.search ?? '');
   }, [filters.search]);
@@ -29,7 +39,10 @@ export function FilterBar({ filters, onChange }: Props) {
   useEffect(() => {
     const trimmed = searchText.trim();
     if (trimmed === (filters.search ?? '')) return;
-    const timer = setTimeout(() => onChange({ ...filters, search: trimmed }), SEARCH_DEBOUNCE_MS);
+    const timer = setTimeout(
+      () => onChange({ ...filtersRef.current, search: trimmed }),
+      SEARCH_DEBOUNCE_MS,
+    );
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchText]);

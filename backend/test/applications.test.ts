@@ -252,6 +252,31 @@ test('GET search treats spacing/hyphenation variants as equivalent ("Full Stack"
   assert.equal((reverse.json() as { items: Application[] }).total, 2);
 });
 
+test('GET search treats a literal _ in the query as a literal character, not a LIKE single-char wildcard', async () => {
+  // If "_" were passed through unescaped, it would match ANY single
+  // character in that position — so "AB_CD" would wrongly also match
+  // "ABXCD" (no underscore at all, just some other char in that slot).
+  await createSample({ company: 'AB_CD Inc', platform_job_id: 'wc-1' });
+  await createSample({ company: 'ABXCD Inc', platform_job_id: 'wc-2' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications?search=AB_CD' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 1);
+  assert.equal(body.items[0].company, 'AB_CD Inc');
+});
+
+test('GET search treats a literal % in the query as a literal character, not a LIKE any-run wildcard', async () => {
+  // If "%" were passed through unescaped, it would match any run of
+  // characters — so "100%Done" would wrongly also match "100xyzDone".
+  await createSample({ company: '100%Done Corp', platform_job_id: 'wc-3' });
+  await createSample({ company: '100xyzDone Corp', platform_job_id: 'wc-4' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications?search=100%25Done' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 1);
+  assert.equal(body.items[0].company, '100%Done Corp');
+});
+
 test('GET paginates results with page/pageSize and reports total', async () => {
   for (let i = 0; i < 5; i++) {
     await createSample({ platform_job_id: `page-${i}`, company: `Co${i}` });
