@@ -27,7 +27,10 @@ import {
 import type { SettingsStore } from "../settings.js";
 import { tailorResume } from "../ai.js";
 import { renderPdf, renderDocx } from "../resumeRender.js";
-import { parseTailoredResume, parseTailorRejection } from "../tailoredResume.js";
+import {
+  parseTailoredResume,
+  parseTailorRejection,
+} from "../tailoredResume.js";
 import {
   STATUS_LABELS,
   PLATFORM_LABELS,
@@ -82,7 +85,9 @@ function normalizeForSearch(text: string): string {
 // source page's block elements. Normalized once here so every write path
 // (extension capture and manual paste alike) stores/feeds the AI prompt with
 // the same clean text, instead of patching each capture site separately.
-function normalizeJobDescription(text: string | null | undefined): string | null {
+function normalizeJobDescription(
+  text: string | null | undefined,
+): string | null {
   if (text == null) return null;
   return text
     .split(/\r?\n/)
@@ -204,7 +209,9 @@ function buildApplicationsReport(
   lines.push(
     csvRow([
       "Response Rate",
-      summary.responseRate !== null ? `${(summary.responseRate * 100).toFixed(1)}%` : "N/A",
+      summary.responseRate !== null
+        ? `${(summary.responseRate * 100).toFixed(1)}%`
+        : "N/A",
     ]),
   );
 
@@ -215,11 +222,15 @@ function buildApplicationsReport(
 
   lines.push("");
   lines.push(csvRow(["Tailoring Insights"]));
-  lines.push(csvRow(["Applications with Tailored Resume", summary.tailoredCount]));
+  lines.push(
+    csvRow(["Applications with Tailored Resume", summary.tailoredCount]),
+  );
   lines.push(
     csvRow([
       "Average Match Rating",
-      summary.avgMatchRating !== null ? `${summary.avgMatchRating.toFixed(1)}/5` : "N/A",
+      summary.avgMatchRating !== null
+        ? `${summary.avgMatchRating.toFixed(1)}/5`
+        : "N/A",
     ]),
   );
 
@@ -239,7 +250,15 @@ export default async function applicationsRoutes(
     "/applications",
     { schema: { querystring: listApplicationsQuerySchema } },
     async (request) => {
-      const { platform, status, search, sort, order, page = 1, pageSize = 25 } = request.query;
+      const {
+        platform,
+        status,
+        search,
+        sort,
+        order,
+        page = 1,
+        pageSize = 25,
+      } = request.query;
       const where: string[] = [];
       const params: Record<string, string> = {};
       if (platform) {
@@ -266,7 +285,9 @@ export default async function applicationsRoutes(
       const sortDir = order === "asc" ? "ASC" : "DESC";
 
       const total = (
-        db.prepare(`SELECT COUNT(*) AS count FROM applications${whereSql}`).get(params) as {
+        db
+          .prepare(`SELECT COUNT(*) AS count FROM applications${whereSql}`)
+          .get(params) as {
           count: number;
         }
       ).count;
@@ -281,7 +302,9 @@ export default async function applicationsRoutes(
         `SELECT * FROM applications${whereSql}` +
         ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}` +
         ` LIMIT @pageSize OFFSET @offset`;
-      const items = db.prepare(sql).all({ ...params, pageSize, offset }) as Application[];
+      const items = db
+        .prepare(sql)
+        .all({ ...params, pageSize, offset }) as Application[];
 
       return { items, total, page: clampedPage, pageSize };
     },
@@ -289,7 +312,10 @@ export default async function applicationsRoutes(
 
   // Shared by both export routes: every application row plus tailoring info
   // (ai_provider/model/matchRating) resolved from its linked resume_versions row.
-  function loadReportData(): { rows: Application[]; versionByAppId: Map<number, AppVersionInfo> } {
+  function loadReportData(): {
+    rows: Application[];
+    versionByAppId: Map<number, AppVersionInfo>;
+  } {
     const rows = db
       .prepare("SELECT * FROM applications ORDER BY date_applied DESC, id DESC")
       .all() as Application[];
@@ -629,7 +655,10 @@ export default async function applicationsRoutes(
         // Weighted average $-per-char across all historical runs of this model
         // (sum of costs over sum of chars), extrapolated to this input's length.
         const totalCost = history.reduce((sum, h) => sum + h.cost, 0);
-        const totalChars = history.reduce((sum, h) => sum + h.input_char_length, 0);
+        const totalChars = history.reduce(
+          (sum, h) => sum + h.input_char_length,
+          0,
+        );
         const costPerChar = totalCost / totalChars;
         const estimate: TailorEstimate = {
           estimatedCost: costPerChar * inputCharLength,
@@ -680,17 +709,24 @@ export default async function applicationsRoutes(
 
       const body = request.body ?? {};
       if (
-        (body.includeMatchRating !== undefined && typeof body.includeMatchRating !== "boolean") ||
-        (body.includeSuggestions !== undefined && typeof body.includeSuggestions !== "boolean") ||
-        (body.targetOnePage !== undefined && typeof body.targetOnePage !== "boolean")
+        (body.includeMatchRating !== undefined &&
+          typeof body.includeMatchRating !== "boolean") ||
+        (body.includeSuggestions !== undefined &&
+          typeof body.includeSuggestions !== "boolean") ||
+        (body.targetOnePage !== undefined &&
+          typeof body.targetOnePage !== "boolean") ||
+        (body.includeCoverLetter !== undefined &&
+          typeof body.includeCoverLetter !== "boolean")
       ) {
         return reply.code(400).send({
-          error: "includeMatchRating, includeSuggestions, and targetOnePage must be booleans if provided.",
+          error:
+            "includeMatchRating, includeSuggestions, targetOnePage and includeCoverLetter must be booleans if provided.",
         });
       }
       const includeMatchRating = body.includeMatchRating ?? true;
       const includeSuggestions = body.includeSuggestions ?? true;
       const targetOnePage = body.targetOnePage ?? false;
+      const includeCoverLetter = body.includeCoverLetter ?? false;
 
       const jobDescription = (app.job_description ?? "").trim();
       if (!jobDescription) {
@@ -729,6 +765,7 @@ export default async function applicationsRoutes(
           includeMatchRating,
           includeSuggestions,
           targetOnePage,
+          includeCoverLetter,
         });
         output = result.output;
         usage = result.usage;
@@ -822,11 +859,18 @@ export default async function applicationsRoutes(
     Querystring: { format: ResumeDownloadFormat };
   }>(
     "/applications/:id/resume-versions/:versionId/download",
-    { schema: { params: resumeVersionParamSchema, querystring: resumeDownloadQuerySchema } },
+    {
+      schema: {
+        params: resumeVersionParamSchema,
+        querystring: resumeDownloadQuerySchema,
+      },
+    },
     async (request, reply) => {
       const { id, versionId } = request.params;
       const version = db
-        .prepare("SELECT * FROM resume_versions WHERE id = ? AND application_id = ?")
+        .prepare(
+          "SELECT * FROM resume_versions WHERE id = ? AND application_id = ?",
+        )
         .get(versionId, id) as ResumeVersion | undefined;
       if (!version || !version.tailored_output) {
         return reply.code(404).send({ error: "Resume version not found." });
@@ -834,22 +878,35 @@ export default async function applicationsRoutes(
 
       const { format } = request.query;
       const filenameBase = `resume-${id}-${versionId}`;
-      const { resume, structured } = parseTailoredResume(version.tailored_output);
+      const { resume, structured } = parseTailoredResume(
+        version.tailored_output,
+      );
 
       if (format === "txt") {
-        reply.header("Content-Disposition", `attachment; filename="${filenameBase}.txt"`);
+        reply.header(
+          "Content-Disposition",
+          `attachment; filename="${filenameBase}.txt"`,
+        );
         return reply.type("text/plain").send(resume);
       }
       if (format === "pdf") {
         const buffer = await renderPdf(structured ?? resume);
-        reply.header("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
+        reply.header(
+          "Content-Disposition",
+          `attachment; filename="${filenameBase}.pdf"`,
+        );
         return reply.type("application/pdf").send(buffer);
       }
 
       const buffer = await renderDocx(structured ?? resume);
-      reply.header("Content-Disposition", `attachment; filename="${filenameBase}.docx"`);
+      reply.header(
+        "Content-Disposition",
+        `attachment; filename="${filenameBase}.docx"`,
+      );
       return reply
-        .type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        .type(
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
         .send(buffer);
     },
   );
