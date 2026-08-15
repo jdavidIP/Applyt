@@ -135,7 +135,21 @@ function systemPrompt(
     "  the degree line never has to wrap in a single-column resume layout.",
   ];
   if (includeCoverLetter) {
-    fieldNotes.push("insert prompt for cover letter");
+    fieldNotes.push(
+      "- coverLetter: required (because it was requested). A concise,",
+      "  submission-ready cover letter for THIS role, grounded only in",
+      "  experience already present in the base resume — never invent",
+      "  employers, dates, titles, or accomplishments (same rule as the resume",
+      "  above). header.company is this posting's company; header.recipient is",
+      '  "Hiring Team" unless the job description names an actual hiring',
+      "  manager/contact. body is 3-4 short paragraphs as a single string with",
+      "  \\n\\n between them (no bullets): why this role/company, the",
+      "  candidate's strongest relevant qualifications with specifics from the",
+      "  resume, and a brief closing call to action. Professional tone, no",
+      "  filler or generic platitudes, and no restating the resume line by",
+      "  line — reference and expand on 2-3 of its most relevant points",
+      '  instead. footer is a sign-off, e.g. "Sincerely, Jane Doe".',
+    );
   }
   if (targetOnePage) {
     fieldNotes.push(
