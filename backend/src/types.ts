@@ -9,6 +9,8 @@ import type {
   ResumeEducationEntry,
   ResumeSkillCategory,
   StructuredResume,
+  CoverLetterHeader,
+  CoverLetter,
   TailorResponseEnvelope,
 } from "./resumeSchema.js";
 export type {
@@ -18,6 +20,8 @@ export type {
   ResumeEducationEntry,
   ResumeSkillCategory,
   StructuredResume,
+  CoverLetterHeader,
+  CoverLetter,
   TailorResponseEnvelope,
 };
 
@@ -251,6 +255,7 @@ export interface TailorRequestBody {
 export interface TailoredSections {
   resume: string;
   structured: StructuredResume | null;
+  coverLetter: CoverLetter | null;
   matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
   matchJustification: string;
   suggestions: string;

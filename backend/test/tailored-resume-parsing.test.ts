@@ -82,6 +82,30 @@ test('does not crash when optional fields (projects, summary) are omitted', () =
   assert.equal(parsed.structured?.summary, undefined);
 });
 
+test('parses a cover letter when present', () => {
+  const withCoverLetter = {
+    ...MINIMAL_ENVELOPE,
+    coverLetter: {
+      contact: { name: 'Jane Doe', email: 'jane@example.com' },
+      date: 'August 10, 2026',
+      header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+      body: 'Paragraph one.\n\nParagraph two.',
+      footer: 'Sincerely, Jane Doe',
+    },
+  };
+  const parsed = parseTailoredResume(JSON.stringify(withCoverLetter));
+  assert.ok(parsed.coverLetter);
+  assert.equal(parsed.coverLetter?.header.company, 'Acme Corp');
+  assert.match(parsed.coverLetter?.body ?? '', /Paragraph two/);
+});
+
+test('coverLetter is null when not requested/absent, and when malformed', () => {
+  assert.equal(parseTailoredResume(JSON.stringify(MINIMAL_ENVELOPE)).coverLetter, null);
+
+  const malformed = { ...MINIMAL_ENVELOPE, coverLetter: { body: 'No contact or header.' } };
+  assert.equal(parseTailoredResume(JSON.stringify(malformed)).coverLetter, null);
+});
+
 test('coerces a bullets field sent as a newline-separated string instead of an array', () => {
   const withStringBullets = {
     resume: {

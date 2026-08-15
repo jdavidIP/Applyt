@@ -1,5 +1,5 @@
 import type { TailoredSections } from './types';
-import { coerceStructuredResume, type StructuredResume } from './resumeSchema';
+import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from './resumeSchema';
 
 // Mirrors backend/src/tailoredResume.ts. Kept in sync manually (the project has
 // no shared package). The AI is prompted to emit a single JSON object (see
@@ -41,6 +41,7 @@ function parseLegacyMarkerFormat(output: string): TailoredSections | null {
   return {
     resume: section('TAILORED_RESUME'),
     structured: null,
+    coverLetter: null,
     matchRating: ratingMatch ? Number(ratingMatch[0]) : null,
     matchJustification: section('MATCH_JUSTIFICATION'),
     suggestions: section('SUGGESTIONS'),
@@ -125,6 +126,8 @@ function parseJsonEnvelope(output: string): TailoredSections | null {
   const structured = coerceStructuredResume(envelope.resume);
   if (!structured) return null;
 
+  const coverLetter = coerceCoverLetter(envelope.coverLetter);
+
   const matchRating =
     typeof envelope.matchRating === 'number' && envelope.matchRating >= 0 && envelope.matchRating <= 5
       ? Math.round(envelope.matchRating)
@@ -139,6 +142,7 @@ function parseJsonEnvelope(output: string): TailoredSections | null {
   return {
     resume: flattenStructuredResume(structured),
     structured,
+    coverLetter,
     matchRating,
     matchJustification,
     suggestions,
@@ -153,5 +157,5 @@ export function parseTailoredResume(output: string): TailoredSections {
   if (markerResult) return markerResult;
 
   const { resume, suggestions } = splitLegacy(output);
-  return { resume, structured: null, matchRating: null, matchJustification: '', suggestions };
+  return { resume, structured: null, coverLetter: null, matchRating: null, matchJustification: '', suggestions };
 }
