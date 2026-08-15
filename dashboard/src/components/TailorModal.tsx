@@ -65,8 +65,8 @@ function MatchStars({ rating }: { rating: number }) {
 interface Props {
   application: Application;
   onClose: () => void;
-  // Tailoring links a new resume_version to the application, so the parent
-  // list should refresh to reflect resume_version_id.
+  // Tailoring adds a new resume_versions row for the application, so the
+  // parent list should refresh to reflect has_resume_version.
   onTailored: () => void;
 }
 

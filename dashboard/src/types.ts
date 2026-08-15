@@ -37,7 +37,7 @@ export interface Application {
   job_description: string | null;
   location: string | null;
   modality: Modality | null;
-  resume_version_id: number | null;
+  has_resume_version: boolean;
   created_at: string;
   updated_at: string;
 }

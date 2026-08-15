@@ -56,6 +56,30 @@ export function mondayOf(d: Date): Date {
   return date;
 }
 
+const WEEKS_IN_STATS = 8;
+
+// Fixed rolling window (the last WEEKS_IN_STATS weeks including the current
+// one, zero-filled) for the dashboard's own stats widget — unlike
+// computePerWeekFullRange below, which spans the full exported data instead
+// of a fixed window.
+export function computePerWeek(dateApplied: string[]): WeeklyCount[] {
+  const now = new Date();
+  const currentWeekStart = mondayOf(now);
+  const buckets: WeeklyCount[] = [];
+  for (let i = WEEKS_IN_STATS - 1; i >= 0; i--) {
+    const weekStart = new Date(currentWeekStart);
+    weekStart.setUTCDate(weekStart.getUTCDate() - i * 7);
+    buckets.push({ weekStart: weekStart.toISOString().slice(0, 10), count: 0 });
+  }
+  const indexByWeekStart = new Map(buckets.map((b, i) => [b.weekStart, i]));
+  for (const iso of dateApplied) {
+    const weekStart = mondayOf(new Date(iso)).toISOString().slice(0, 10);
+    const idx = indexByWeekStart.get(weekStart);
+    if (idx !== undefined) buckets[idx].count += 1;
+  }
+  return buckets;
+}
+
 // Bucketed across the actual span of the exported data (earliest to most
 // recent date_applied), not a fixed rolling window like the dashboard's own
 // 8-week stat widget — a downloaded report should reflect everything in it.

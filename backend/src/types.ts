@@ -60,7 +60,7 @@ export interface Application {
   job_description: string | null;
   location: string | null;
   modality: Modality | null;
-  resume_version_id: number | null;
+  has_resume_version: boolean; // computed: does at least one resume_versions row reference this application
   created_at: string;
   updated_at: string;
 }

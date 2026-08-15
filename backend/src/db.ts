@@ -1,8 +1,8 @@
-import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { SCHEMA_SQL } from './schema.js';
+import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { SCHEMA_SQL } from "./schema.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -10,18 +10,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Overridable via DB_PATH env var (e.g. ':memory:' for tests).
 function resolveDbPath(): string {
   const envPath = process.env.DB_PATH;
-  if (envPath && envPath.trim() !== '') return envPath;
+  if (envPath && envPath.trim() !== "") return envPath;
   // src/ -> ../data  (in dev) ; dist/ -> ../data (in build). Both land at backend/data.
-  return resolve(__dirname, '..', 'data', 'applications.db');
+  return resolve(__dirname, "..", "data", "applications.db");
 }
 
 export function createDb(dbPath: string = resolveDbPath()): Database.Database {
-  if (dbPath !== ':memory:') {
+  if (dbPath !== ":memory:") {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
   const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
   db.exec(SCHEMA_SQL);
   migrate(db);
   return db;
@@ -33,40 +33,45 @@ export function createDb(dbPath: string = resolveDbPath()): Database.Database {
 // the live column set first so re-running is a harmless no-op.
 function migrate(db: Database.Database): void {
   const hasColumn = (table: string, column: string): boolean =>
-    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
-      (c) => c.name === column,
-    );
+    (
+      db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    ).some((c) => c.name === column);
 
   // Phase 4: job_description holds the JD text used as the AI tailoring input.
-  if (!hasColumn('applications', 'job_description')) {
-    db.exec('ALTER TABLE applications ADD COLUMN job_description TEXT');
+  if (!hasColumn("applications", "job_description")) {
+    db.exec("ALTER TABLE applications ADD COLUMN job_description TEXT");
   }
 
   // Location + modality: free-text location and on_site/hybrid/remote.
-  if (!hasColumn('applications', 'location')) {
-    db.exec('ALTER TABLE applications ADD COLUMN location TEXT');
+  if (!hasColumn("applications", "location")) {
+    db.exec("ALTER TABLE applications ADD COLUMN location TEXT");
   }
-  if (!hasColumn('applications', 'modality')) {
-    db.exec('ALTER TABLE applications ADD COLUMN modality TEXT');
+  if (!hasColumn("applications", "modality")) {
+    db.exec("ALTER TABLE applications ADD COLUMN modality TEXT");
   }
 
   // Phase 4 cost tracking: record what each tailor run consumed and cost.
-  if (!hasColumn('resume_versions', 'model')) {
-    db.exec('ALTER TABLE resume_versions ADD COLUMN model TEXT');
+  if (!hasColumn("resume_versions", "model")) {
+    db.exec("ALTER TABLE resume_versions ADD COLUMN model TEXT");
   }
-  if (!hasColumn('resume_versions', 'input_tokens')) {
-    db.exec('ALTER TABLE resume_versions ADD COLUMN input_tokens INTEGER');
+  if (!hasColumn("resume_versions", "input_tokens")) {
+    db.exec("ALTER TABLE resume_versions ADD COLUMN input_tokens INTEGER");
   }
-  if (!hasColumn('resume_versions', 'output_tokens')) {
-    db.exec('ALTER TABLE resume_versions ADD COLUMN output_tokens INTEGER');
+  if (!hasColumn("resume_versions", "output_tokens")) {
+    db.exec("ALTER TABLE resume_versions ADD COLUMN output_tokens INTEGER");
   }
-  if (!hasColumn('resume_versions', 'cost')) {
-    db.exec('ALTER TABLE resume_versions ADD COLUMN cost REAL');
+  if (!hasColumn("resume_versions", "cost")) {
+    db.exec("ALTER TABLE resume_versions ADD COLUMN cost REAL");
   }
 
   // Cost-estimate feature: input length in chars, so a future tailor run's cost
   // can be extrapolated from this model's historical $-per-char.
-  if (!hasColumn('resume_versions', 'input_char_length')) {
-    db.exec('ALTER TABLE resume_versions ADD COLUMN input_char_length INTEGER');
+  if (!hasColumn("resume_versions", "input_char_length")) {
+    db.exec("ALTER TABLE resume_versions ADD COLUMN input_char_length INTEGER");
+  }
+
+  // Remove circular dependency between applications and resume
+  if (hasColumn("applications", "resume_version_id")) {
+    db.exec("ALTER TABLE applications DROP COLUMN resume_version_id");
   }
 }

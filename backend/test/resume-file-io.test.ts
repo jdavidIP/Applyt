@@ -33,7 +33,7 @@ after(async () => {
 });
 
 beforeEach(() => {
-  db.exec('UPDATE applications SET resume_version_id = NULL');
+  db.exec('DELETE FROM cover_letters');
   db.exec('DELETE FROM resume_versions');
   db.exec('DELETE FROM applications');
   rmSync(settingsPath, { force: true });

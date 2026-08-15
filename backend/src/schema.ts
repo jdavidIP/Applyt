@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS applications (
   job_description TEXT,                          -- pasted/edited JD text; the tailoring input (Phase 4)
   location TEXT,                                 -- free-text job location, e.g. "Toronto, ON" or "Remote"
   modality TEXT,                                 -- 'on_site' | 'hybrid' | 'remote'
-  resume_version_id INTEGER REFERENCES resume_versions(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -37,6 +36,16 @@ CREATE TABLE IF NOT EXISTS resume_versions (
   output_tokens INTEGER,                        -- completion tokens billed by the provider
   cost REAL,                                    -- computed $ cost; NULL if the model has no configured pricing
   input_char_length INTEGER,                    -- chars of (base resume + job description) sent, for cost estimation
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Issue #15 (Cover Letter Tailoring). A new table is added to hold the cover letters related to an application.
+-- This is a cleaner approach than simply sticking the cover letters as a column in the application's table.
+CREATE TABLE IF NOT EXISTS cover_letters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  application_id INTEGER REFERENCES applications(id),
+  resume_version_id INTEGER REFERENCES resume_versions(id),
+  tailored_output TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

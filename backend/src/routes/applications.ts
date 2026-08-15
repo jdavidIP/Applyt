@@ -8,7 +8,6 @@ import type {
   MarkStaleBody,
   BulkDeleteQuery,
   StatsResponse,
-  WeeklyCount,
   ResumeVersion,
   TailorEstimate,
   ResumeDownloadFormat,
@@ -32,210 +31,22 @@ import {
   parseTailorRejection,
 } from "../tailoredResume.js";
 import {
-  STATUS_LABELS,
-  PLATFORM_LABELS,
-  APPLY_METHOD_LABELS,
   computeReportSummary,
   resolveVersionByAppId,
   RESPONSE_STATUSES,
-  mondayOf,
-  neutralizeFormulaPrefix,
+  computePerWeek,
   type AppVersionInfo,
 } from "../reportData.js";
 import { buildApplicationsWorkbook } from "../xlsxExport.js";
-
-const WEEKS_IN_STATS = 8;
-
-function computePerWeek(dateApplied: string[]): WeeklyCount[] {
-  const now = new Date();
-  const currentWeekStart = mondayOf(now);
-  const buckets: WeeklyCount[] = [];
-  for (let i = WEEKS_IN_STATS - 1; i >= 0; i--) {
-    const weekStart = new Date(currentWeekStart);
-    weekStart.setUTCDate(weekStart.getUTCDate() - i * 7);
-    buckets.push({ weekStart: weekStart.toISOString().slice(0, 10), count: 0 });
-  }
-  const indexByWeekStart = new Map(buckets.map((b, i) => [b.weekStart, i]));
-  for (const iso of dateApplied) {
-    const weekStart = mondayOf(new Date(iso)).toISOString().slice(0, 10);
-    const idx = indexByWeekStart.get(weekStart);
-    if (idx !== undefined) buckets[idx].count += 1;
-  }
-  return buckets;
-}
+import { buildApplicationsReport } from "../csvExport.js";
+import {
+  normalizeForSearch,
+  normalizeJobDescription,
+  mergeStatus,
+} from "../applicationHelpers.js";
 
 interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
-}
-
-// Search bar: strips spaces/hyphens so "Full Stack", "Full-Stack", and
-// "Fullstack" are treated as equivalent on both sides of the LIKE comparison,
-// then escapes SQLite's own LIKE wildcards (%, _, and the escape char itself)
-// so a literal % or _ in a company/title is matched literally rather than
-// acting as a wildcard — paired with "ESCAPE '\'" on the LIKE clauses below.
-function normalizeForSearch(text: string): string {
-  return text
-    .trim()
-    .replace(/[\s-]+/g, "")
-    .replace(/[\\%_]/g, (c) => `\\${c}`);
-}
-
-// Issue #12: job descriptions arrive as raw scraped textContent (extension) or
-// pasted text (manual add/edit) with irregular interior whitespace from the
-// source page's block elements. Normalized once here so every write path
-// (extension capture and manual paste alike) stores/feeds the AI prompt with
-// the same clean text, instead of patching each capture site separately.
-function normalizeJobDescription(
-  text: string | null | undefined,
-): string | null {
-  if (text == null) return null;
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-// ---- CSV export (Issue #16) ----
-// The previous export dumped every raw DB column (internal id, resume_version_id
-// FK, created_at/updated_at bookkeeping) with no structure — "correctly
-// generated" but of little use to a human. This produces a two-section report
-// instead: a clean, human-readable detail table (one row per application, with
-// tailoring info resolved from resume_versions rather than exposing the raw
-// FK), followed by a summary/insights block below a blank separator row.
-// Any tool that just reads until a shorter row still gets a clean table from
-// the top section — the summary is additive, not a format change to the detail
-// rows a spreadsheet import would rely on.
-
-const CSV_DETAIL_HEADERS = [
-  "Date Applied",
-  "Company",
-  "Job Title",
-  "Platform",
-  "Application Method",
-  "Status",
-  "Last Updated",
-  "Resume Tailored",
-  "Match Rating",
-  "AI Provider",
-  "AI Model",
-  "Job URL",
-  "Notes",
-  "Job Description",
-];
-
-// Statuses an automatic/manual re-detection of a job is allowed to set. A user's
-// later lifecycle changes (interviewing/rejected/offer/ghosted/stale) must NOT be
-// clobbered by a subsequent re-detect of the same posting.
-const AUTO_STATUSES = new Set(["applied", "pending_confirmation"]);
-
-// Resolve the status when an already-known job is reported again.
-function mergeStatus(existing: string, incoming: string): string {
-  // Preserve a user-advanced lifecycle status — never regress it.
-  if (!AUTO_STATUSES.has(existing)) return existing;
-  // Both are auto-ish: a confirmed 'applied' outranks 'pending_confirmation',
-  // so promote (e.g. external redirect → user "Mark as applied") but never
-  // downgrade a job already marked applied back to pending.
-  if (existing === "applied" || incoming === "applied") return "applied";
-  return incoming;
-}
-
-function csvEscape(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  const s = neutralizeFormulaPrefix(String(value));
-  // Quote if the field contains a comma, quote, CR or LF; double up embedded quotes.
-  if (/[",\r\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
-function csvRow(values: (string | number | null | undefined)[]): string {
-  return values.map(csvEscape).join(",");
-}
-
-// date_last_updated is stored as a full ISO timestamp (unlike date_applied,
-// a plain date) — trim it to just the date for a report column, matching the
-// Date Applied column's format instead of showing a raw timestamp.
-function csvDate(isoTimestamp: string): string {
-  return isoTimestamp.slice(0, 10);
-}
-
-function buildApplicationsReport(
-  rows: Application[],
-  versionByAppId: Map<number, AppVersionInfo>,
-): string {
-  const lines: string[] = [csvRow(CSV_DETAIL_HEADERS)];
-
-  for (const a of rows) {
-    const v = versionByAppId.get(a.id);
-    lines.push(
-      csvRow([
-        csvDate(a.date_applied),
-        a.company,
-        a.title,
-        PLATFORM_LABELS[a.platform],
-        APPLY_METHOD_LABELS[a.apply_method],
-        STATUS_LABELS[a.status],
-        csvDate(a.date_last_updated),
-        v ? "Yes" : "No",
-        v?.matchRating != null ? `${v.matchRating}/5` : "",
-        v?.ai_provider ?? "",
-        v?.model ?? "",
-        a.job_url,
-        a.notes,
-        a.job_description,
-      ]),
-    );
-  }
-
-  const summary = computeReportSummary(rows, versionByAppId);
-
-  // ---- Summary / insights, below a blank separator row ----
-  lines.push("");
-  lines.push(csvRow(["SUMMARY"]));
-  lines.push(csvRow(["Total Applications", summary.totalApplications]));
-
-  lines.push("");
-  lines.push(csvRow(["Applications by Status"]));
-  for (const s of summary.byStatus) lines.push(csvRow([s.label, s.count]));
-
-  lines.push("");
-  lines.push(csvRow(["Applications by Platform"]));
-  for (const p of summary.byPlatform) lines.push(csvRow([p.label, p.count]));
-
-  lines.push("");
-  lines.push(
-    csvRow([
-      "Response Rate",
-      summary.responseRate !== null
-        ? `${(summary.responseRate * 100).toFixed(1)}%`
-        : "N/A",
-    ]),
-  );
-
-  lines.push("");
-  lines.push(csvRow(["Applications per Week"]));
-  lines.push(csvRow(["Week Starting", "Count"]));
-  for (const w of summary.perWeek) lines.push(csvRow([w.weekStart, w.count]));
-
-  lines.push("");
-  lines.push(csvRow(["Tailoring Insights"]));
-  lines.push(
-    csvRow(["Applications with Tailored Resume", summary.tailoredCount]),
-  );
-  lines.push(
-    csvRow([
-      "Average Match Rating",
-      summary.avgMatchRating !== null
-        ? `${summary.avgMatchRating.toFixed(1)}/5`
-        : "N/A",
-    ]),
-  );
-
-  // CRLF line endings for maximum spreadsheet compatibility (RFC 4180).
-  return lines.join("\r\n") + "\r\n";
 }
 
 export default async function applicationsRoutes(
@@ -243,6 +54,22 @@ export default async function applicationsRoutes(
   opts: RoutesOptions,
 ): Promise<void> {
   const { db, settings } = opts;
+
+  // applications.resume_version_id was removed (redundant with
+  // resume_versions.application_id, and created a circular FK between the two
+  // tables). Client-facing Application rows instead carry a computed
+  // has_resume_version flag so the dashboard can still show "already
+  // tailored" without a stored pointer to go stale.
+  function getApplicationById(id: number): Application | undefined {
+    const row = db
+      .prepare(
+        `SELECT applications.*,
+                EXISTS(SELECT 1 FROM resume_versions WHERE resume_versions.application_id = applications.id) AS has_resume_version
+           FROM applications WHERE id = ?`,
+      )
+      .get(id) as (Omit<Application, "has_resume_version"> & { has_resume_version: number }) | undefined;
+    return row ? { ...row, has_resume_version: !!row.has_resume_version } : undefined;
+  }
 
   // GET /applications — list with optional platform/status filter, sort, and
   // pagination (page/pageSize; defaults 1/25, pageSize capped at 100).
@@ -299,12 +126,16 @@ export default async function applicationsRoutes(
 
       const offset = (clampedPage - 1) * pageSize;
       const sql =
-        `SELECT * FROM applications${whereSql}` +
+        `SELECT applications.*,
+                EXISTS(SELECT 1 FROM resume_versions WHERE resume_versions.application_id = applications.id) AS has_resume_version
+           FROM applications${whereSql}` +
         ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}` +
         ` LIMIT @pageSize OFFSET @offset`;
-      const items = db
-        .prepare(sql)
-        .all({ ...params, pageSize, offset }) as Application[];
+      const rows = db.prepare(sql).all({ ...params, pageSize, offset }) as (Omit<
+        Application,
+        "has_resume_version"
+      > & { has_resume_version: number })[];
+      const items = rows.map((r) => ({ ...r, has_resume_version: !!r.has_resume_version }));
 
       return { items, total, page: clampedPage, pageSize };
     },
@@ -320,20 +151,17 @@ export default async function applicationsRoutes(
       .prepare("SELECT * FROM applications ORDER BY date_applied DESC, id DESC")
       .all() as Application[];
 
-    const versionIds = rows
-      .map((r) => r.resume_version_id)
-      .filter((id): id is number => id !== null);
-    const versions = versionIds.length
-      ? (db
-          .prepare(
-            `SELECT id, application_id, ai_provider, model, tailored_output
-             FROM resume_versions WHERE id IN (${versionIds.map(() => "?").join(",")})`,
-          )
-          .all(...versionIds) as Pick<
-          ResumeVersion,
-          "id" | "application_id" | "ai_provider" | "model" | "tailored_output"
-        >[])
-      : [];
+    // Newest-per-application wins: resolveVersionByAppId does a plain
+    // Map.set() per row in iteration order, so ordering ascending by id
+    // means the last (newest) row for a given application overwrites any
+    // earlier one.
+    const versions = db.prepare(
+      `SELECT id, application_id, ai_provider, model, tailored_output
+         FROM resume_versions ORDER BY id ASC`,
+    ).all() as Pick<
+      ResumeVersion,
+      "id" | "application_id" | "ai_provider" | "model" | "tailored_output"
+    >[];
     return { rows, versionByAppId: resolveVersionByAppId(versions) };
   }
 
@@ -437,9 +265,7 @@ export default async function applicationsRoutes(
     "/applications/:id",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
-      const row = db
-        .prepare("SELECT * FROM applications WHERE id = ?")
-        .get(request.params.id) as Application | undefined;
+      const row = getApplicationById(request.params.id);
       if (!row) return reply.code(404).send({ error: "Application not found" });
       return row;
     },
@@ -486,9 +312,7 @@ export default async function applicationsRoutes(
             now,
             id: existing.id,
           });
-          const updated = db
-            .prepare("SELECT * FROM applications WHERE id = ?")
-            .get(existing.id) as Application;
+          const updated = getApplicationById(existing.id);
           return reply.code(200).send(updated);
         }
       }
@@ -522,9 +346,7 @@ export default async function applicationsRoutes(
           updated_at: now,
         });
 
-      const created = db
-        .prepare("SELECT * FROM applications WHERE id = ?")
-        .get(info.lastInsertRowid) as Application;
+      const created = getApplicationById(info.lastInsertRowid as number);
       return reply.code(201).send(created);
     },
   );
@@ -579,9 +401,7 @@ export default async function applicationsRoutes(
       db.prepare(
         `UPDATE applications SET ${fields.join(", ")} WHERE id = @id`,
       ).run(params);
-      return db
-        .prepare("SELECT * FROM applications WHERE id = ?")
-        .get(id) as Application;
+      return getApplicationById(id);
     },
   );
 
@@ -591,14 +411,13 @@ export default async function applicationsRoutes(
     { schema: { params: idParamSchema } },
     async (request, reply) => {
       const id = request.params.id;
-      // applications.resume_version_id and resume_versions.application_id
-      // reference each other, so the app's pointer must be cleared before its
-      // resume_versions rows can be deleted, or the FK constraint on
-      // resume_version_id rejects the delete.
+      // cover_letters references both applications(id) and
+      // resume_versions(id) with no ON DELETE CASCADE, so its rows must go
+      // first, then resume_versions, then the application itself.
       const deleteApplication = db.transaction(() => {
-        db.prepare(
-          "UPDATE applications SET resume_version_id = NULL WHERE id = ?",
-        ).run(id);
+        db.prepare("DELETE FROM cover_letters WHERE application_id = ?").run(
+          id,
+        );
         db.prepare("DELETE FROM resume_versions WHERE application_id = ?").run(
           id,
         );
@@ -820,10 +639,9 @@ export default async function applicationsRoutes(
           created_at: now,
         });
 
-      // Point the application at its newest tailored version.
       db.prepare(
-        "UPDATE applications SET resume_version_id = @rvid, updated_at = @now WHERE id = @id",
-      ).run({ rvid: info.lastInsertRowid, now, id: app.id });
+        "UPDATE applications SET updated_at = @now WHERE id = @id",
+      ).run({ now, id: app.id });
 
       const created = db
         .prepare("SELECT * FROM resume_versions WHERE id = ?")
