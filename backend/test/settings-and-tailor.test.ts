@@ -1067,12 +1067,99 @@ test('POST /:id/tailor works with provider=ollama and no API key, at zero cost',
   // Runs on the user's own hardware: a real 0, not an unpriced null.
   assert.equal(version.cost, 0);
 
-  // Native /api/chat (not the OpenAI-compat shim) with JSON mode forced, so
-  // the strict-envelope contract survives less obedient local models.
+  // Native /api/chat (not the OpenAI-compat shim), with a full JSON Schema
+  // rather than the bare "json" string — see the schema tests below.
   assert.equal(capturedUrl, 'http://localhost:11434/api/chat');
-  assert.equal(capturedBody.format, 'json');
   assert.equal(capturedBody.stream, false);
   assert.equal(capturedBody.model, 'llama3.2:latest');
+  assert.equal(typeof capturedBody.format, 'object');
+});
+
+// Regression coverage for a real llama3.2:3b failure: asked only for
+// `format: 'json'`, it returned perfectly valid JSON in a wholly invented
+// shape (flat "skills"/"web & frontend"/... keys, no `resume` object), which
+// parseTailoredResume() then had to discard. `format` must carry the actual
+// envelope schema so Ollama constrains decoding to it.
+test('POST /:id/tailor sends a JSON Schema (not format:"json") that pins the envelope shape', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'ollama', model: 'llama3.2:latest', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedBody: Record<string, unknown> = {};
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    capturedBody = JSON.parse(init!.body as string) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        message: { content: 'OUT' },
+        prompt_eval_count: 10,
+        eval_count: 5,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+
+  assert.notEqual(capturedBody.format, 'json');
+  const format = capturedBody.format as { anyOf: Record<string, unknown>[] };
+  // anyOf keeps the Issue #14 "not_a_resume" rejection reachable; a schema
+  // that always required `resume` would force a fabricated one.
+  assert.equal(format.anyOf.length, 2);
+
+  const envelope = format.anyOf[0] as {
+    properties: Record<string, unknown>;
+    required: string[];
+    additionalProperties: boolean;
+  };
+  assert.deepEqual(envelope.required, ['resume', 'matchRating', 'matchJustification', 'suggestions']);
+  // The invented flat keys that broke the real run are unrepresentable.
+  assert.equal(envelope.additionalProperties, false);
+
+  const resume = envelope.properties.resume as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+  assert.deepEqual(resume.required, ['contact', 'experience', 'education', 'skills']);
+  assert.ok(resume.properties.projects, 'projects stays available but optional');
+
+  const rejection = format.anyOf[1] as { properties: { error: { enum: string[] } } };
+  assert.deepEqual(rejection.properties.error.enum, ['not_a_resume']);
+});
+
+test('the Ollama JSON Schema omits sections the caller opted out of', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'ollama', model: 'llama3.2:1b', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedBody: Record<string, unknown> = {};
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    capturedBody = JSON.parse(init!.body as string) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({ message: { content: 'OUT' }, prompt_eval_count: 1, eval_count: 1 }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeMatchRating: false, includeSuggestions: false, includeCoverLetter: true },
+  });
+
+  const envelope = (capturedBody.format as { anyOf: Record<string, unknown>[] })
+    .anyOf[0] as { properties: Record<string, unknown>; required: string[] };
+  // Opted-out sections are dropped from the schema entirely rather than just
+  // made optional, so with additionalProperties:false they're unemittable.
+  assert.deepEqual(envelope.required, ['resume', 'coverLetter']);
+  assert.equal(envelope.properties.matchRating, undefined);
+  assert.equal(envelope.properties.suggestions, undefined);
+  assert.ok(envelope.properties.coverLetter);
 });
 
 test('POST /:id/tailor 502s with a "is it running?" hint when Ollama is unreachable', async () => {

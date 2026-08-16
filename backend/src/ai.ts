@@ -69,6 +69,142 @@ function openaiModelsUrl(): string {
     : "https://api.openai.com/v1/models";
 }
 
+// JSON Schema mirroring TailorResponseEnvelope (resumeSchema.ts), for
+// providers that can constrain decoding to a schema rather than merely to
+// "some valid JSON" — currently Ollama's `format` field, which compiles this
+// into a decoding grammar.
+//
+// This matters far more for small local models than for frontier hosted ones.
+// A llama3.2:3b run asked only for `format: 'json'` returned perfectly valid
+// JSON in a completely invented shape (flat "skills"/"web & frontend"/...
+// keys, no `resume` object at all) — parseTailoredResume() correctly rejected
+// it and fell back to flat text, but the tailored resume was effectively lost.
+// A schema makes that failure structurally impossible instead of relying on
+// the model to follow prose instructions.
+//
+// Built from the same flags as systemPrompt() below and kept deliberately
+// adjacent to it: the prompt's illustrative example and this schema describe
+// one shape twice, so they have to be edited together.
+//
+// `anyOf` keeps the Issue #14 rejection shape reachable — without it, a
+// schema requiring `resume` would force the model to fabricate a resume
+// structure for input that clearly isn't a resume, which is exactly what that
+// path exists to avoid.
+function tailorResponseSchema(
+  includeMatchRating: boolean,
+  includeSuggestions: boolean,
+  includeCoverLetter: boolean,
+): Record<string, unknown> {
+  const str = { type: "string" };
+  const strArray = { type: "array", items: { type: "string" } };
+  const object = (
+    properties: Record<string, unknown>,
+    required: string[],
+  ): Record<string, unknown> => ({
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  });
+
+  const contact = object(
+    { name: str, email: str, phone: str, location: str, links: strArray },
+    ["name"],
+  );
+
+  const resume = object(
+    {
+      contact,
+      summary: str,
+      experience: {
+        type: "array",
+        items: object(
+          {
+            title: str,
+            company: str,
+            location: str,
+            startDate: str,
+            endDate: str,
+            bullets: strArray,
+          },
+          ["title", "company", "startDate", "endDate", "bullets"],
+        ),
+      },
+      projects: {
+        type: "array",
+        items: object({ name: str, dateRange: str, bullets: strArray }, [
+          "name",
+          "bullets",
+        ]),
+      },
+      education: {
+        type: "array",
+        items: object(
+          {
+            institution: str,
+            degree: str,
+            dates: str,
+            honors: str,
+            coursework: str,
+          },
+          ["institution", "degree", "dates"],
+        ),
+      },
+      skills: {
+        type: "array",
+        items: object({ label: str, items: strArray }, ["label", "items"]),
+      },
+    },
+    ["contact", "experience", "education", "skills"],
+  );
+
+  // Optional sections are omitted from the schema entirely (not just left out
+  // of `required`) when not requested — combined with additionalProperties
+  // false, that makes an unrequested section unemittable rather than merely
+  // discouraged, matching the "never asked to produce a field the user
+  // doesn't want" design.
+  const envelopeProps: Record<string, unknown> = { resume };
+  const envelopeRequired = ["resume"];
+  if (includeCoverLetter) {
+    envelopeProps.coverLetter = object(
+      {
+        contact,
+        date: str,
+        header: object({ recipient: str, company: str }, [
+          "recipient",
+          "company",
+        ]),
+        body: str,
+        footer: str,
+      },
+      ["contact", "date", "header", "body", "footer"],
+    );
+    envelopeRequired.push("coverLetter");
+  }
+  if (includeMatchRating) {
+    // An enum rather than integer+minimum/maximum: numeric range constraints
+    // don't survive schema-to-grammar conversion reliably, an explicit set of
+    // literals does. parseJsonEnvelope() still range-checks regardless.
+    envelopeProps.matchRating = { type: "integer", enum: [0, 1, 2, 3, 4, 5] };
+    envelopeProps.matchJustification = strArray;
+    envelopeRequired.push("matchRating", "matchJustification");
+  }
+  if (includeSuggestions) {
+    envelopeProps.suggestions = strArray;
+    envelopeRequired.push("suggestions");
+  }
+
+  return {
+    anyOf: [
+      object(envelopeProps, envelopeRequired),
+      object({ error: { type: "string", enum: ["not_a_resume"] }, message: str }, [
+        "error",
+        "message",
+      ]),
+    ],
+  };
+}
+
 // A single JSON object (TailorResponseEnvelope, resumeSchema.ts) rather than
 // marker-delimited text, so the download endpoints can render the resume into
 // a real ATS template (resumeRender.ts) instead of dumb-dumping lines into a
@@ -361,13 +497,19 @@ async function callOllama(
     body: JSON.stringify({
       model: p.model,
       stream: false,
-      // Ollama's native structured-output switch. The envelope contract
-      // parseTailoredResume() depends on is strict JSON, and small local
-      // models honor a "JSON only" instruction far less reliably than
-      // frontier hosted ones — this constrains decoding rather than trusting
-      // the prompt alone. (This is also why the native /api/chat is used
-      // instead of Ollama's OpenAI-compatible shim, which doesn't expose it.)
-      format: "json",
+      // A full JSON Schema, not the bare "json" string: the latter only
+      // guarantees syntactically valid JSON, which a small local model will
+      // happily satisfy with an entirely invented shape (see
+      // tailorResponseSchema above). Ollama compiles this into a decoding
+      // grammar, so the envelope shape parseTailoredResume() expects is
+      // enforced token-by-token rather than merely requested in the prompt.
+      // (This is also why the native /api/chat is used instead of Ollama's
+      // OpenAI-compatible shim, which doesn't expose `format`.)
+      format: tailorResponseSchema(
+        p.includeMatchRating,
+        p.includeSuggestions,
+        p.includeCoverLetter,
+      ),
       options: { num_predict: MAX_TOKENS },
       messages: [
         {
