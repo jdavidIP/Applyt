@@ -40,10 +40,10 @@ after(async () => {
 });
 
 beforeEach(() => {
-  // applications.resume_version_id and resume_versions.application_id reference
-  // each other, so clear the applications→version link first, then delete the
-  // (now-unreferenced) versions, then the applications — keeping foreign_keys ON.
-  db.exec('UPDATE applications SET resume_version_id = NULL');
+  // cover_letters references both applications(id) and resume_versions(id)
+  // with no ON DELETE CASCADE, so it must be cleared before resume_versions,
+  // then applications — keeping foreign_keys ON.
+  db.exec('DELETE FROM cover_letters');
   db.exec('DELETE FROM resume_versions');
   db.exec('DELETE FROM applications');
   rmSync(settingsPath, { force: true }); // reset settings to defaults each test
@@ -186,14 +186,92 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   // (1000/1e6)*2 + (500/1e6)*10 = 0.002 + 0.005 = 0.007
   assert.ok(Math.abs((version.cost ?? 0) - 0.007) < 1e-9);
 
-  // The application now points at its newest tailored version.
+  // The application now reports a tailored resume exists.
   const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
-  assert.equal(app2.resume_version_id, version.id);
+  assert.equal(app2.has_resume_version, true);
 
   // …and it's listed under the application's resume-versions.
   const list = (await app.inject({ method: 'GET', url: `/applications/${created.id}/resume-versions` })).json() as ResumeVersion[];
   assert.equal(list.length, 1);
   assert.equal(list[0].id, version.id);
+});
+
+test('POST /:id/tailor persists a cover_letters row when includeCoverLetter is true and the model returns one', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          coverLetter: {
+            contact: { name: 'Jane Doe' },
+            date: 'August 10, 2026',
+            header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+            body: 'Paragraph one.\n\nParagraph two.',
+            footer: 'Sincerely, Jane Doe',
+          },
+        }),
+      },
+    ],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeCoverLetter: true },
+  });
+  assert.equal(res.statusCode, 201);
+  const version = res.json() as ResumeVersion;
+
+  const row = db
+    .prepare('SELECT * FROM cover_letters WHERE application_id = ?')
+    .get(created.id) as { resume_version_id: number; tailored_output: string } | undefined;
+  assert.ok(row);
+  assert.equal(row?.resume_version_id, version.id);
+  const stored = JSON.parse(row!.tailored_output) as { header: { company: string } };
+  assert.equal(stored.header.company, 'Acme Corp');
+});
+
+test('POST /:id/tailor does not persist a cover_letters row when includeCoverLetter is omitted (default false)', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  // Even if the model returns a coverLetter unprompted, it must not be
+  // persisted unless the caller opted in.
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          coverLetter: {
+            contact: { name: 'Jane Doe' },
+            date: 'August 10, 2026',
+            header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+            body: 'Paragraph one.',
+            footer: 'Sincerely, Jane Doe',
+          },
+        }),
+      },
+    ],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 201);
+
+  const row = db.prepare('SELECT * FROM cover_letters WHERE application_id = ?').get(created.id);
+  assert.equal(row, undefined);
 });
 
 test('CSV export (Issue #16) resolves tailoring info — match rating, provider, model — per application', async () => {
@@ -256,11 +334,11 @@ test('POST /:id/tailor 422s and does not persist a version when the model reject
   assert.match((res.json() as { error: string }).error, /job posting/i);
 
   // No resume_versions row should have been persisted, and the application
-  // should not have been pointed at a (nonexistent) version.
+  // should not report a tailored resume.
   const list = (await app.inject({ method: 'GET', url: `/applications/${created.id}/resume-versions` })).json() as ResumeVersion[];
   assert.equal(list.length, 0);
   const app2 = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
-  assert.equal(app2.resume_version_id, null);
+  assert.equal(app2.has_resume_version, false);
 });
 
 test('DELETE /applications/:id succeeds when the application has a tailored resume version', async () => {
@@ -278,14 +356,56 @@ test('DELETE /applications/:id succeeds when the application has a tailored resu
   const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
   assert.equal(tailorRes.statusCode, 201);
 
-  // applications.resume_version_id and resume_versions.application_id reference
-  // each other, so deletion must clear the app's pointer before dropping its
-  // resume_versions rows, or the FK constraint on resume_version_id rejects it.
+  // resume_versions.application_id (and cover_letters, transitively) still
+  // reference the application, so deletion must clear those rows first, or
+  // the FK constraint rejects it.
   const deleteRes = await app.inject({ method: 'DELETE', url: `/applications/${created.id}` });
   assert.equal(deleteRes.statusCode, 204);
 
   const getRes = await app.inject({ method: 'GET', url: `/applications/${created.id}` });
   assert.equal(getRes.statusCode, 404);
+});
+
+test('DELETE /applications/:id succeeds when the application has both a resume version and a cover letter', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          coverLetter: {
+            contact: { name: 'Jane Doe' },
+            date: 'August 10, 2026',
+            header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+            body: 'Paragraph one.',
+            footer: 'Sincerely, Jane Doe',
+          },
+        }),
+      },
+    ],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const tailorRes = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeCoverLetter: true },
+  });
+  assert.equal(tailorRes.statusCode, 201);
+  assert.ok(db.prepare('SELECT * FROM cover_letters WHERE application_id = ?').get(created.id));
+
+  // cover_letters references both applications(id) and resume_versions(id)
+  // with no ON DELETE CASCADE — this exercises that the delete route clears
+  // it before resume_versions/applications, or the FK constraint rejects it.
+  const deleteRes = await app.inject({ method: 'DELETE', url: `/applications/${created.id}` });
+  assert.equal(deleteRes.statusCode, 204);
+  assert.equal(db.prepare('SELECT * FROM cover_letters WHERE application_id = ?').get(created.id), undefined);
 });
 
 test('GET /:id/tailor-estimate 400s when there is no job description', async () => {
@@ -618,12 +738,11 @@ test('popup flow: tailor a pending application, then a confirmed apply promotes 
   });
   const tailorRes = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
   assert.equal(tailorRes.statusCode, 201);
-  const version = tailorRes.json() as ResumeVersion;
 
-  // The application is linked to the tailored version but is still pending.
+  // The application has a tailored version linked but is still pending.
   const pending = (await app.inject({ method: 'GET', url: `/applications/${created.id}` })).json() as Application;
   assert.equal(pending.status, 'pending_confirmation');
-  assert.equal(pending.resume_version_id, version.id);
+  assert.equal(pending.has_resume_version, true);
 
   // The user completes the Easy Apply — the content script reports it applied.
   const confirm = await app.inject({
@@ -643,7 +762,7 @@ test('popup flow: tailor a pending application, then a confirmed apply promotes 
   const promoted = confirm.json() as Application;
   assert.equal(promoted.id, created.id);
   assert.equal(promoted.status, 'applied');
-  assert.equal(promoted.resume_version_id, version.id); // resume still linked
+  assert.equal(promoted.has_resume_version, true); // resume still linked
 
   const all = (await app.inject({ method: 'GET', url: '/applications' })).json() as { items: Application[] };
   assert.equal(all.items.length, 1); // promoted in place, not duplicated

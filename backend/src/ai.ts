@@ -1,4 +1,4 @@
-import type { AiProvider, TokenUsage } from './types.js';
+import type { AiProvider, TokenUsage } from "./types.js";
 
 // AI resume tailoring (CLAUDE.md §7 Phase 4). This is the ONLY place the whole
 // project makes an outbound network call: the backend proxies a single request
@@ -25,6 +25,7 @@ export interface TailorParams {
   // the model has no visibility into the actual rendered PDF/DOCX layout — so
   // it reduces overflow for typical resumes without guaranteeing it.
   targetOnePage: boolean;
+  includeCoverLetter: boolean;
 }
 
 export interface TailorResult {
@@ -42,20 +43,26 @@ const MAX_TOKENS = 8192;
 // Endpoints are overridable via env so a user behind a proxy/gateway (or a test)
 // can redirect them; defaults are the real provider APIs.
 function anthropicUrl(): string {
-  return process.env.ANTHROPIC_BASE_URL?.trim() || 'https://api.anthropic.com/v1/messages';
+  return (
+    process.env.ANTHROPIC_BASE_URL?.trim() ||
+    "https://api.anthropic.com/v1/messages"
+  );
 }
 function openaiUrl(): string {
-  return process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1/chat/completions';
+  return (
+    process.env.OPENAI_BASE_URL?.trim() ||
+    "https://api.openai.com/v1/chat/completions"
+  );
 }
 function anthropicModelsUrl(): string {
   return process.env.ANTHROPIC_BASE_URL?.trim()
-    ? anthropicUrl().replace(/\/messages$/, '/models')
-    : 'https://api.anthropic.com/v1/models';
+    ? anthropicUrl().replace(/\/messages$/, "/models")
+    : "https://api.anthropic.com/v1/models";
 }
 function openaiModelsUrl(): string {
   return process.env.OPENAI_BASE_URL?.trim()
-    ? openaiUrl().replace(/\/chat\/completions$/, '/models')
-    : 'https://api.openai.com/v1/models';
+    ? openaiUrl().replace(/\/chat\/completions$/, "/models")
+    : "https://api.openai.com/v1/models";
 }
 
 // A single JSON object (TailorResponseEnvelope, resumeSchema.ts) rather than
@@ -64,7 +71,12 @@ function openaiModelsUrl(): string {
 // PDF/DOCX. The resume is always produced; matchRating/matchJustification/
 // suggestions are each included only if requested, so the model is never
 // asked (and never billed) to produce a field the user doesn't want.
-function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean, targetOnePage: boolean): string {
+function systemPrompt(
+  includeMatchRating: boolean,
+  includeSuggestions: boolean,
+  targetOnePage: boolean,
+  includeCoverLetter: boolean,
+): string {
   const exampleFields = [
     `  "resume": {
     "contact": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1 555-0100", "location": "City, ST", "links": ["github.com/janedoe", "linkedin.com/in/janedoe"] },
@@ -83,6 +95,17 @@ function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean, 
     ]
   }`,
   ];
+  if (includeCoverLetter) {
+    exampleFields.push(
+      `"coverLetter": {
+      "contact": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1 555-0100", "location": "City, ST", "links": ["github.com/janedoe", "linkedin.com/in/janedoe"] },
+      "date": "August 10, 2026",
+      "header": { "recipient": "Hiring Team", "company": "ABC Corporation" },
+      "body": "Multiple paragraphs, no bullets.",
+      "footer": "Sincerely, Jane Doe"
+      }`,
+    );
+  }
   if (includeMatchRating) {
     exampleFields.push(
       '  "matchRating": 4',
@@ -90,131 +113,157 @@ function systemPrompt(includeMatchRating: boolean, includeSuggestions: boolean, 
     );
   }
   if (includeSuggestions) {
-    exampleFields.push('  "suggestions": ["Emphasize X in the interview.", "Address gap Y proactively."]');
+    exampleFields.push(
+      '  "suggestions": ["Emphasize X in the interview.", "Address gap Y proactively."]',
+    );
   }
 
   const fieldNotes = [
-    '- resume: required. A tailored, submission-ready version of the candidate\'s',
-    '  resume, restructured into the fields shown above. Emphasize the experience',
-    '  and skills most relevant to this role and echo the job description\'s',
-    '  language where the candidate genuinely matches it. NEVER invent experience,',
-    '  employers, dates, titles, or credentials the candidate does not already',
-    '  have — only reorganize, reword, and re-emphasize what is present in the base',
+    "- resume: required. A tailored, submission-ready version of the candidate's",
+    "  resume, restructured into the fields shown above. Emphasize the experience",
+    "  and skills most relevant to this role and echo the job description's",
+    "  language where the candidate genuinely matches it. NEVER invent experience,",
+    "  employers, dates, titles, or credentials the candidate does not already",
+    "  have — only reorganize, reword, and re-emphasize what is present in the base",
     '  resume. Omit "projects" entirely (not an empty array) if the base resume has',
     '  none. Every bullets array holds plain strings with no leading "-" or "•".',
-    '- resume.education[].degree: keep this SHORT — just the credential itself',
+    "- resume.education[].degree: keep this SHORT — just the credential itself",
     '  (e.g., "B.S. Computer Science" or "Bachelor of Computer Science"). Put',
-    '  distinctions, honors, program modifiers (Honours, Co-op), and the major/',
-    '  concentration in `honors` instead of appending them to degree (e.g.,',
+    "  distinctions, honors, program modifiers (Honours, Co-op), and the major/",
+    "  concentration in `honors` instead of appending them to degree (e.g.,",
     '  honors: "Honours (Co-op), With Distinction, Major in Cybersecurity"), so',
-    '  the degree line never has to wrap in a single-column resume layout.',
+    "  the degree line never has to wrap in a single-column resume layout.",
   ];
+  if (includeCoverLetter) {
+    fieldNotes.push(
+      "- coverLetter: required (because it was requested). A concise,",
+      "  submission-ready cover letter for THIS role, grounded only in",
+      "  experience already present in the base resume — never invent",
+      "  employers, dates, titles, or accomplishments (same rule as the resume",
+      "  above). header.company is this posting's company; header.recipient is",
+      '  "Hiring Team" unless the job description names an actual hiring',
+      "  manager/contact. body is 3-4 short paragraphs as a single string with",
+      "  \\n\\n between them (no bullets): why this role/company, the",
+      "  candidate's strongest relevant qualifications with specifics from the",
+      "  resume, and a brief closing call to action. Professional tone, no",
+      "  filler or generic platitudes, and no restating the resume line by",
+      "  line — reference and expand on 2-3 of its most relevant points",
+      '  instead. footer is a sign-off, e.g. "Sincerely, Jane Doe".',
+    );
+  }
   if (targetOnePage) {
     fieldNotes.push(
-      '- one-page target requested: this resume must fit comfortably on a single',
-      '  standard page. Prioritize whatever is most relevant to THIS job posting;',
-      '  if the full base resume would not fit, condense or omit the roles,',
-      '  bullets, projects, or coursework you judge least relevant to this posting',
-      '  first, keeping the most relevant material intact and prominent. This is',
-      '  about prioritization and cutting, not fabrication — still never invent,',
-      '  exaggerate, or misrepresent anything (see above); only omit or shorten',
-      '  what is already true. Rough budget: 3-5 bullets per role (fewer for',
-      '  older or less relevant roles), each bullet roughly one line, and prefer',
-      '  dropping or trimming older/tangential entries over shortening every',
-      '  bullet equally.',
+      "- one-page target requested: this resume must fit comfortably on a single",
+      "  standard page. Prioritize whatever is most relevant to THIS job posting;",
+      "  if the full base resume would not fit, condense or omit the roles,",
+      "  bullets, projects, or coursework you judge least relevant to this posting",
+      "  first, keeping the most relevant material intact and prominent. This is",
+      "  about prioritization and cutting, not fabrication — still never invent,",
+      "  exaggerate, or misrepresent anything (see above); only omit or shorten",
+      "  what is already true. Rough budget: 3-5 bullets per role (fewer for",
+      "  older or less relevant roles), each bullet roughly one line, and prefer",
+      "  dropping or trimming older/tangential entries over shortening every",
+      "  bullet equally.",
     );
   }
   if (includeMatchRating) {
     fieldNotes.push(
-      '- matchRating: required (because it was requested). An integer from 0 to 5',
-      '  rating how well the candidate\'s resume matches this job: 5 = an excellent,',
-      '  near-complete match; 0 = the posting is essentially out of scope for this',
-      '  resume.',
-      '- matchJustification: required (because it was requested). Three to six',
-      '  concise strings explaining the rating: which key requirements the',
-      '  candidate clearly meets, which are only partially met, and which are',
-      '  missing or unproven. Be honest and specific, referencing concrete',
-      '  requirements from the job description.',
+      "- matchRating: required (because it was requested). An integer from 0 to 5",
+      "  rating how well the candidate's resume matches this job: 5 = an excellent,",
+      "  near-complete match; 0 = the posting is essentially out of scope for this",
+      "  resume.",
+      "- matchJustification: required (because it was requested). Three to six",
+      "  concise strings explaining the rating: which key requirements the",
+      "  candidate clearly meets, which are only partially met, and which are",
+      "  missing or unproven. Be honest and specific, referencing concrete",
+      "  requirements from the job description.",
     );
   }
   if (includeSuggestions) {
     fieldNotes.push(
-      '- suggestions: required (because it was requested). Concrete, honest',
-      '  guidance as plain strings: specific things to emphasize or bring up in an',
-      '  interview, gaps to proactively address, and points worth adding to a',
-      '  cover letter.',
+      "- suggestions: required (because it was requested). Concrete, honest",
+      "  guidance as plain strings: specific things to emphasize or bring up in an",
+      "  interview, gaps to proactively address, and points worth adding to a",
+      "  cover letter.",
     );
   }
 
   return [
-    'You are an expert resume writer, career coach, and technical recruiter.',
-    'You will receive a candidate\'s base resume and a specific job description.',
-    '',
-    'FIRST, check whether BASE RESUME below is actually a real resume/CV for a',
-    'real (even if informally written) individual — not a job description, a',
-    'cover letter, unrelated text, or empty/placeholder content. Lean lenient:',
-    'a short, rough, unconventionally formatted, or incomplete resume still',
-    'counts as a resume, and should be tailored normally, not rejected. Only',
-    'reject text that is clearly NOT a resume at all. If (and only if) BASE',
-    'RESUME clearly is not a resume, respond with EXACTLY this JSON object and',
-    'nothing else, instead of the shape below:',
+    "You are an expert resume writer, career coach, and technical recruiter.",
+    "You will receive a candidate's base resume and a specific job description.",
+    "",
+    "FIRST, check whether BASE RESUME below is actually a real resume/CV for a",
+    "real (even if informally written) individual — not a job description, a",
+    "cover letter, unrelated text, or empty/placeholder content. Lean lenient:",
+    "a short, rough, unconventionally formatted, or incomplete resume still",
+    "counts as a resume, and should be tailored normally, not rejected. Only",
+    "reject text that is clearly NOT a resume at all. If (and only if) BASE",
+    "RESUME clearly is not a resume, respond with EXACTLY this JSON object and",
+    "nothing else, instead of the shape below:",
     '{ "error": "not_a_resume", "message": "<one short sentence explaining why,',
     'written for the candidate to read>" }',
-    '',
-    'Otherwise, respond with a single JSON object and nothing else — no',
-    'markdown code fences, no commentary before or after it. It must have',
-    'exactly this shape (illustrative values shown; omit any field not',
-    'documented below as required):',
-    '',
-    '{',
-    exampleFields.join(',\n'),
-    '}',
-    '',
-    'Field notes:',
+    "",
+    "Otherwise, respond with a single JSON object and nothing else — no",
+    "markdown code fences, no commentary before or after it. It must have",
+    "exactly this shape (illustrative values shown; omit any field not",
+    "documented below as required):",
+    "",
+    "{",
+    exampleFields.join(",\n"),
+    "}",
+    "",
+    "Field notes:",
     ...fieldNotes,
-  ].join('\n');
+  ].join("\n");
 }
 
 function userPrompt(p: TailorParams): string {
   return [
     `TARGET ROLE: ${p.title} at ${p.company}`,
-    '',
-    'JOB DESCRIPTION:',
+    "",
+    "JOB DESCRIPTION:",
     p.jobDescription,
-    '',
-    'BASE RESUME:',
+    "",
+    "BASE RESUME:",
     p.baseResume,
-    '',
-    'Respond with the single JSON object exactly as specified — no other text.',
-  ].join('\n');
+    "",
+    "Respond with the single JSON object exactly as specified — no other text.",
+  ].join("\n");
 }
 
-async function callAnthropic(p: TailorParams): Promise<{ text: string; usage: TokenUsage }> {
+async function callAnthropic(
+  p: TailorParams,
+): Promise<{ text: string; usage: TokenUsage }> {
   const res = await fetch(anthropicUrl(), {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'content-type': 'application/json',
-      'x-api-key': p.apiKey,
-      'anthropic-version': '2023-06-01',
+      "content-type": "application/json",
+      "x-api-key": p.apiKey,
+      "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
       model: p.model,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt(p.includeMatchRating, p.includeSuggestions, p.targetOnePage),
-      messages: [{ role: 'user', content: userPrompt(p) }],
+      system: systemPrompt(
+        p.includeMatchRating,
+        p.includeSuggestions,
+        p.targetOnePage,
+        p.includeCoverLetter,
+      ),
+      messages: [{ role: "user", content: userPrompt(p) }],
     }),
   });
-  if (!res.ok) throw await providerError('Anthropic', res);
+  if (!res.ok) throw await providerError("Anthropic", res);
   const data = (await res.json()) as {
     content?: { type: string; text?: string }[];
     usage?: { input_tokens?: number; output_tokens?: number };
   };
   const text = (data.content ?? [])
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text ?? '')
-    .join('')
+    .filter((block) => block.type === "text")
+    .map((block) => block.text ?? "")
+    .join("")
     .trim();
-  if (!text) throw new Error('Anthropic returned an empty response.');
+  if (!text) throw new Error("Anthropic returned an empty response.");
   return {
     text,
     usage: {
@@ -224,11 +273,13 @@ async function callAnthropic(p: TailorParams): Promise<{ text: string; usage: To
   };
 }
 
-async function callOpenai(p: TailorParams): Promise<{ text: string; usage: TokenUsage }> {
+async function callOpenai(
+  p: TailorParams,
+): Promise<{ text: string; usage: TokenUsage }> {
   const res = await fetch(openaiUrl(), {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'content-type': 'application/json',
+      "content-type": "application/json",
       authorization: `Bearer ${p.apiKey}`,
     },
     body: JSON.stringify({
@@ -239,18 +290,26 @@ async function callOpenai(p: TailorParams): Promise<{ text: string; usage: Token
       // it, so this must be max_completion_tokens for every model we call.
       max_completion_tokens: MAX_TOKENS,
       messages: [
-        { role: 'system', content: systemPrompt(p.includeMatchRating, p.includeSuggestions, p.targetOnePage) },
-        { role: 'user', content: userPrompt(p) },
+        {
+          role: "system",
+          content: systemPrompt(
+            p.includeMatchRating,
+            p.includeSuggestions,
+            p.targetOnePage,
+            p.includeCoverLetter,
+          ),
+        },
+        { role: "user", content: userPrompt(p) },
       ],
     }),
   });
-  if (!res.ok) throw await providerError('OpenAI', res);
+  if (!res.ok) throw await providerError("OpenAI", res);
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  const text = data.choices?.[0]?.message?.content?.trim() ?? '';
-  if (!text) throw new Error('OpenAI returned an empty response.');
+  const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!text) throw new Error("OpenAI returned an empty response.");
   return {
     text,
     usage: {
@@ -266,8 +325,11 @@ async function callOpenai(p: TailorParams): Promise<{ text: string; usage: Token
 async function providerError(name: string, res: Response): Promise<Error> {
   let detail = `${res.status} ${res.statusText}`;
   try {
-    const body = (await res.json()) as { error?: { message?: string } | string };
-    const msg = typeof body.error === 'string' ? body.error : body.error?.message;
+    const body = (await res.json()) as {
+      error?: { message?: string } | string;
+    };
+    const msg =
+      typeof body.error === "string" ? body.error : body.error?.message;
     if (msg) detail = msg;
   } catch {
     // Non-JSON error body; keep the status line.
@@ -316,9 +378,9 @@ function dedupeDatedSnapshots(ids: string[]): string[] {
 
 async function listAnthropicModels(apiKey: string): Promise<string[]> {
   const res = await fetch(anthropicModelsUrl(), {
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
   });
-  if (!res.ok) throw await providerError('Anthropic', res);
+  if (!res.ok) throw await providerError("Anthropic", res);
   const data = (await res.json()) as { data?: { id: string }[] };
   return dedupeDatedSnapshots((data.data ?? []).map((m) => m.id));
 }
@@ -327,7 +389,7 @@ async function listOpenaiModels(apiKey: string): Promise<string[]> {
   const res = await fetch(openaiModelsUrl(), {
     headers: { authorization: `Bearer ${apiKey}` },
   });
-  if (!res.ok) throw await providerError('OpenAI', res);
+  if (!res.ok) throw await providerError("OpenAI", res);
   const data = (await res.json()) as { data?: { id: string }[] };
   const textChatModels = (data.data ?? [])
     .map((m) => m.id)
@@ -337,12 +399,21 @@ async function listOpenaiModels(apiKey: string): Promise<string[]> {
   return dedupeDatedSnapshots(textChatModels);
 }
 
-export async function listModels(provider: AiProvider, apiKey: string): Promise<string[]> {
-  return provider === 'openai' ? listOpenaiModels(apiKey) : listAnthropicModels(apiKey);
+export async function listModels(
+  provider: AiProvider,
+  apiKey: string,
+): Promise<string[]> {
+  return provider === "openai"
+    ? listOpenaiModels(apiKey)
+    : listAnthropicModels(apiKey);
 }
 
-export async function tailorResume(params: TailorParams): Promise<TailorResult> {
+export async function tailorResume(
+  params: TailorParams,
+): Promise<TailorResult> {
   const { text, usage } =
-    params.provider === 'openai' ? await callOpenai(params) : await callAnthropic(params);
+    params.provider === "openai"
+      ? await callOpenai(params)
+      : await callAnthropic(params);
   return { output: text, provider: params.provider, usage };
 }

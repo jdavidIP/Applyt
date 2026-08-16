@@ -1,6 +1,6 @@
 // Mirrors backend/src/types.ts. Kept in sync manually (Phase 1 has no shared package).
 
-import type { StructuredResume } from './resumeSchema';
+import type { StructuredResume, CoverLetter } from './resumeSchema';
 
 export const PLATFORMS = ['indeed', 'linkedin', 'glassdoor', 'manual'] as const;
 export type Platform = (typeof PLATFORMS)[number];
@@ -37,7 +37,7 @@ export interface Application {
   job_description: string | null;
   location: string | null;
   modality: Modality | null;
-  resume_version_id: number | null;
+  has_resume_version: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +142,7 @@ export interface TailorOptions {
   includeMatchRating?: boolean;
   includeSuggestions?: boolean;
   targetOnePage?: boolean;
+  includeCoverLetter?: boolean;
 }
 
 // Pre-generate cost estimate from GET /:id/tailor-estimate, shown before
@@ -161,6 +162,7 @@ export interface TailorEstimate {
 export interface TailoredSections {
   resume: string;
   structured: StructuredResume | null;
+  coverLetter: CoverLetter | null;
   matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
   matchJustification: string;
   suggestions: string;

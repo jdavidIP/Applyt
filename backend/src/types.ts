@@ -9,8 +9,10 @@ import type {
   ResumeEducationEntry,
   ResumeSkillCategory,
   StructuredResume,
+  CoverLetterHeader,
+  CoverLetter,
   TailorResponseEnvelope,
-} from './resumeSchema.js';
+} from "./resumeSchema.js";
 export type {
   ResumeContact,
   ResumeExperienceEntry,
@@ -18,26 +20,32 @@ export type {
   ResumeEducationEntry,
   ResumeSkillCategory,
   StructuredResume,
+  CoverLetterHeader,
+  CoverLetter,
   TailorResponseEnvelope,
 };
 
-export const PLATFORMS = ['indeed', 'linkedin', 'glassdoor', 'manual'] as const;
+export const PLATFORMS = ["indeed", "linkedin", "glassdoor", "manual"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
-export const APPLY_METHODS = ['in_platform', 'external_redirect', 'manual'] as const;
+export const APPLY_METHODS = [
+  "in_platform",
+  "external_redirect",
+  "manual",
+] as const;
 export type ApplyMethod = (typeof APPLY_METHODS)[number];
 
-export const MODALITIES = ['on_site', 'hybrid', 'remote'] as const;
+export const MODALITIES = ["on_site", "hybrid", "remote"] as const;
 export type Modality = (typeof MODALITIES)[number];
 
 export const STATUSES = [
-  'applied',
-  'pending_confirmation',
-  'interviewing',
-  'rejected',
-  'offer',
-  'ghosted',
-  'stale',
+  "applied",
+  "pending_confirmation",
+  "interviewing",
+  "rejected",
+  "offer",
+  "ghosted",
+  "stale",
 ] as const;
 export type Status = (typeof STATUSES)[number];
 
@@ -56,7 +64,7 @@ export interface Application {
   job_description: string | null;
   location: string | null;
   modality: Modality | null;
-  resume_version_id: number | null;
+  has_resume_version: boolean; // computed: does at least one resume_versions row reference this application
   created_at: string;
   updated_at: string;
 }
@@ -98,8 +106,8 @@ export interface ListApplicationsQuery {
   platform?: Platform;
   status?: Status;
   search?: string;
-  sort?: 'date_applied' | 'date_last_updated';
-  order?: 'asc' | 'desc';
+  sort?: "date_applied" | "date_last_updated";
+  order?: "asc" | "desc";
   page?: number;
   pageSize?: number;
 }
@@ -132,7 +140,7 @@ export interface StatsResponse {
 
 // ---- Phase 4: AI resume tailoring ----
 
-export const AI_PROVIDERS = ['anthropic', 'openai'] as const;
+export const AI_PROVIDERS = ["anthropic", "openai"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 // Per-model pricing, quoted the way providers publish it: dollars per MILLION
@@ -214,7 +222,7 @@ export interface ResumeVersion {
 //   estimatedCost is null rather than a fabricated number.
 export interface TailorEstimate {
   estimatedCost: number | null;
-  source: 'historical' | 'static' | 'unavailable';
+  source: "historical" | "static" | "unavailable";
   sampleSize?: number;
   model: string;
 }
@@ -231,6 +239,7 @@ export interface TailorRequestBody {
   includeMatchRating?: boolean;
   includeSuggestions?: boolean;
   targetOnePage?: boolean;
+  includeCoverLetter?: boolean;
 }
 
 // The sections every tailor run produces, parsed out of the raw
@@ -246,6 +255,7 @@ export interface TailorRequestBody {
 export interface TailoredSections {
   resume: string;
   structured: StructuredResume | null;
+  coverLetter: CoverLetter | null;
   matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
   matchJustification: string;
   suggestions: string;
@@ -275,5 +285,5 @@ export interface ExtractResumeTextResponse {
 // GET /applications/:id/resume-versions/:versionId/download?format= — renders
 // a stored resume_versions.tailored_output on demand rather than storing
 // multiple binary formats per version (see resumeRender.ts).
-export const RESUME_DOWNLOAD_FORMATS = ['pdf', 'docx', 'txt'] as const;
+export const RESUME_DOWNLOAD_FORMATS = ["pdf", "docx", "txt"] as const;
 export type ResumeDownloadFormat = (typeof RESUME_DOWNLOAD_FORMATS)[number];

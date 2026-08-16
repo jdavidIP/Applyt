@@ -49,6 +49,19 @@ export interface StructuredResume {
   skills: ResumeSkillCategory[];
 }
 
+export interface CoverLetterHeader {
+  recipient: string;
+  company: string;
+}
+
+export interface CoverLetter {
+  contact: ResumeContact;
+  date: string;
+  header: CoverLetterHeader;
+  body: string;
+  footer: string;
+}
+
 function isStringArray(x: unknown): x is string[] {
   return Array.isArray(x) && x.every((item) => typeof item === 'string');
 }
@@ -109,24 +122,27 @@ function coerceSkillCategory(x: unknown): ResumeSkillCategory | null {
   return { label: x.label, items: coerceBullets(x.items) };
 }
 
+function coerceContact(x: unknown): ResumeContact | null {
+  if (!isPlainObject(x) || typeof x.name !== 'string' || !x.name.trim()) return null;
+  return {
+    name: x.name,
+    email: typeof x.email === 'string' ? x.email : undefined,
+    phone: typeof x.phone === 'string' ? x.phone : undefined,
+    location: typeof x.location === 'string' ? x.location : undefined,
+    links: isStringArray(x.links) ? x.links : undefined,
+  };
+}
+
 export function coerceStructuredResume(x: unknown): StructuredResume | null {
   if (!isPlainObject(x)) return null;
-  const contact = x.contact;
-  if (!isPlainObject(contact) || typeof contact.name !== 'string' || !contact.name.trim()) {
-    return null;
-  }
+  const contact = coerceContact(x.contact);
+  if (!contact) return null;
   if (!Array.isArray(x.experience) || !Array.isArray(x.education) || !Array.isArray(x.skills)) {
     return null;
   }
 
   return {
-    contact: {
-      name: contact.name,
-      email: typeof contact.email === 'string' ? contact.email : undefined,
-      phone: typeof contact.phone === 'string' ? contact.phone : undefined,
-      location: typeof contact.location === 'string' ? contact.location : undefined,
-      links: isStringArray(contact.links) ? contact.links : undefined,
-    },
+    contact,
     summary: typeof x.summary === 'string' ? x.summary : undefined,
     experience: x.experience.map(coerceExperienceEntry).filter((e): e is ResumeExperienceEntry => e !== null),
     projects: Array.isArray(x.projects)
@@ -134,5 +150,28 @@ export function coerceStructuredResume(x: unknown): StructuredResume | null {
       : undefined,
     education: x.education.map(coerceEducationEntry).filter((e): e is ResumeEducationEntry => e !== null),
     skills: x.skills.map(coerceSkillCategory).filter((s): s is ResumeSkillCategory => s !== null),
+  };
+}
+
+export function coerceCoverLetter(x: unknown): CoverLetter | null {
+  if (!isPlainObject(x)) return null;
+  const contact = coerceContact(x.contact);
+  if (!contact) return null;
+  const header = x.header;
+  if (
+    !isPlainObject(header) ||
+    typeof header.recipient !== 'string' ||
+    typeof header.company !== 'string'
+  ) {
+    return null;
+  }
+  if (typeof x.body !== 'string' || !x.body.trim()) return null;
+
+  return {
+    contact,
+    date: typeof x.date === 'string' ? x.date : '',
+    header: { recipient: header.recipient, company: header.company },
+    body: x.body,
+    footer: typeof x.footer === 'string' ? x.footer : '',
   };
 }

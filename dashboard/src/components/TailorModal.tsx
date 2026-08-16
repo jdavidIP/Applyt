@@ -21,6 +21,7 @@ import type {
   TailorEstimate,
   ResumeDownloadFormat,
 } from "../types";
+import type { CoverLetter } from "../resumeSchema";
 import { Modal } from "./Modal";
 
 // Strips characters that aren't filesystem-safe on Windows/macOS/Linux,
@@ -65,8 +66,8 @@ function MatchStars({ rating }: { rating: number }) {
 interface Props {
   application: Application;
   onClose: () => void;
-  // Tailoring links a new resume_version to the application, so the parent
-  // list should refresh to reflect resume_version_id.
+  // Tailoring adds a new resume_versions row for the application, so the
+  // parent list should refresh to reflect has_resume_version.
   onTailored: () => void;
 }
 
@@ -103,6 +104,22 @@ function estimateSummary(e: TailorEstimate): string {
   return `Estimated cost: ~${cost} (rough estimate, no history yet for ${e.model})`;
 }
 
+// Display-only text rendering of a cover letter for the readonly preview
+// below — not the download format (issue #15 doesn't add a PDF/DOCX/TXT
+// download for cover letters, only display, matching how matchJustification/
+// suggestions are already scoped).
+function formatCoverLetter(cl: CoverLetter): string {
+  const contactLine = [cl.contact.email, cl.contact.phone, cl.contact.location]
+    .filter(Boolean)
+    .join(" | ");
+  const lines = [cl.contact.name];
+  if (contactLine) lines.push(contactLine);
+  if (cl.date) lines.push("", cl.date);
+  lines.push("", cl.header.recipient, cl.header.company, "", cl.body);
+  if (cl.footer) lines.push("", cl.footer);
+  return lines.join("\n");
+}
+
 // Phase 4 (CLAUDE.md §7): "Tailor for this job" — sends the base resume + this
 // application's job description to the configured AI provider and stores the
 // result. Prior tailored versions for the job are listed and viewable.
@@ -119,6 +136,10 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [includeMatchRating, setIncludeMatchRating] = useState(true);
   const [includeSuggestions, setIncludeSuggestions] = useState(true);
   const [targetOnePage, setTargetOnePage] = useState(true);
+  // Defaults to false, unlike the other options above — matches the
+  // backend's default (routes/applications.ts) so a run with the options
+  // menu untouched behaves the same both places.
+  const [includeCoverLetter, setIncludeCoverLetter] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
 
@@ -191,6 +212,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
         includeMatchRating,
         includeSuggestions,
         targetOnePage,
+        includeCoverLetter,
       });
       setVersions((prev) => [version, ...prev]);
       setSelected(version);
@@ -267,6 +289,11 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
       label: "Target one page",
       checked: targetOnePage,
       onToggle: () => setTargetOnePage((v) => !v),
+    },
+    {
+      label: "Include cover letter",
+      checked: includeCoverLetter,
+      onToggle: () => setIncludeCoverLetter((v) => !v),
     },
   ];
 
@@ -414,6 +441,20 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               className="w-full card p-4 font-mono text-xs leading-relaxed focus:outline-none bg-matcha-50/20"
             />
           </div>
+
+          {sections.coverLetter && (
+            <div className="flex flex-col gap-2">
+              <label className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">
+                Cover letter
+              </label>
+              <textarea
+                readOnly
+                value={formatCoverLetter(sections.coverLetter)}
+                rows={14}
+                className="w-full card p-4 font-mono text-xs leading-relaxed focus:outline-none bg-matcha-50/20"
+              />
+            </div>
+          )}
 
           {sections.suggestions && (
             <div className="card p-4 flex flex-col gap-2">

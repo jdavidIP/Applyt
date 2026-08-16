@@ -52,11 +52,26 @@ export interface StructuredResume {
   skills: ResumeSkillCategory[];
 }
 
+export interface CoverLetterHeader {
+  recipient: string; // e.g. "Hiring Team", or a named contact from the job description
+  company: string;
+}
+
+export interface CoverLetter {
+  contact: ResumeContact;
+  date: string; // free text, e.g. "August 10, 2026"
+  header: CoverLetterHeader;
+  body: string; // 3-4 paragraphs joined by "\n\n", no bullets
+  footer: string; // sign-off, e.g. "Sincerely, Jane Doe"
+}
+
 // The full JSON object the AI is asked to return in one shot (ai.ts). Match
-// rating/justification/suggestions live alongside the resume itself so
-// there's a single parse, single failure mode — see tailoredResume.ts.
+// rating/justification/suggestions/coverLetter live alongside the resume
+// itself so there's a single parse, single failure mode — see
+// tailoredResume.ts.
 export interface TailorResponseEnvelope {
   resume: StructuredResume;
+  coverLetter?: CoverLetter;
   matchRating?: number; // integer 0-5
   matchJustification?: string[]; // bullet strings, no leading "-"
   suggestions?: string[]; // bullet strings, no leading "-"
@@ -125,6 +140,17 @@ function coerceSkillCategory(x: unknown): ResumeSkillCategory | null {
   return { label: x.label, items: coerceBullets(x.items) };
 }
 
+function coerceContact(x: unknown): ResumeContact | null {
+  if (!isPlainObject(x) || typeof x.name !== 'string' || !x.name.trim()) return null;
+  return {
+    name: x.name,
+    email: typeof x.email === 'string' ? x.email : undefined,
+    phone: typeof x.phone === 'string' ? x.phone : undefined,
+    location: typeof x.location === 'string' ? x.location : undefined,
+    links: isStringArray(x.links) ? x.links : undefined,
+  };
+}
+
 // Strict on top-level shape (a resume without a name, or with an unusable
 // experience/education/skills array, isn't worth rendering as structured
 // data), lenient on nested fields (one malformed bullet or missing date
@@ -132,22 +158,14 @@ function coerceSkillCategory(x: unknown): ResumeSkillCategory | null {
 // dropped rather than failing the whole parse.
 export function coerceStructuredResume(x: unknown): StructuredResume | null {
   if (!isPlainObject(x)) return null;
-  const contact = x.contact;
-  if (!isPlainObject(contact) || typeof contact.name !== 'string' || !contact.name.trim()) {
-    return null;
-  }
+  const contact = coerceContact(x.contact);
+  if (!contact) return null;
   if (!Array.isArray(x.experience) || !Array.isArray(x.education) || !Array.isArray(x.skills)) {
     return null;
   }
 
   return {
-    contact: {
-      name: contact.name,
-      email: typeof contact.email === 'string' ? contact.email : undefined,
-      phone: typeof contact.phone === 'string' ? contact.phone : undefined,
-      location: typeof contact.location === 'string' ? contact.location : undefined,
-      links: isStringArray(contact.links) ? contact.links : undefined,
-    },
+    contact,
     summary: typeof x.summary === 'string' ? x.summary : undefined,
     experience: x.experience.map(coerceExperienceEntry).filter((e): e is ResumeExperienceEntry => e !== null),
     projects: Array.isArray(x.projects)
@@ -155,6 +173,32 @@ export function coerceStructuredResume(x: unknown): StructuredResume | null {
       : undefined,
     education: x.education.map(coerceEducationEntry).filter((e): e is ResumeEducationEntry => e !== null),
     skills: x.skills.map(coerceSkillCategory).filter((s): s is ResumeSkillCategory => s !== null),
+  };
+}
+
+// Lenient like coerceStructuredResume: a cover letter needs a real contact,
+// header (recipient + company), and non-empty body to be worth rendering;
+// date/footer fall back to an empty string rather than failing the parse.
+export function coerceCoverLetter(x: unknown): CoverLetter | null {
+  if (!isPlainObject(x)) return null;
+  const contact = coerceContact(x.contact);
+  if (!contact) return null;
+  const header = x.header;
+  if (
+    !isPlainObject(header) ||
+    typeof header.recipient !== 'string' ||
+    typeof header.company !== 'string'
+  ) {
+    return null;
+  }
+  if (typeof x.body !== 'string' || !x.body.trim()) return null;
+
+  return {
+    contact,
+    date: typeof x.date === 'string' ? x.date : '',
+    header: { recipient: header.recipient, company: header.company },
+    body: x.body,
+    footer: typeof x.footer === 'string' ? x.footer : '',
   };
 }
 

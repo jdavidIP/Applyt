@@ -1,5 +1,5 @@
 import type { TailoredSections } from './types.js';
-import { coerceStructuredResume, type StructuredResume } from './resumeSchema.js';
+import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from './resumeSchema.js';
 
 // The AI (ai.ts) is prompted to return a single JSON object (a
 // TailorResponseEnvelope) containing the tailored resume as structured
@@ -60,6 +60,7 @@ function parseLegacyMarkerFormat(output: string): TailoredSections | null {
   return {
     resume: section('TAILORED_RESUME'),
     structured: null,
+    coverLetter: null, // this format predates cover-letter support
     matchRating: ratingMatch ? Number(ratingMatch[0]) : null,
     matchJustification: section('MATCH_JUSTIFICATION'),
     suggestions: section('SUGGESTIONS'),
@@ -176,6 +177,8 @@ function parseJsonEnvelope(output: string): TailoredSections | null {
   const structured = coerceStructuredResume(envelope.resume);
   if (!structured) return null;
 
+  const coverLetter = coerceCoverLetter(envelope.coverLetter);
+
   const matchRating =
     typeof envelope.matchRating === 'number' && envelope.matchRating >= 0 && envelope.matchRating <= 5
       ? Math.round(envelope.matchRating)
@@ -190,6 +193,7 @@ function parseJsonEnvelope(output: string): TailoredSections | null {
   return {
     resume: flattenStructuredResume(structured),
     structured,
+    coverLetter,
     matchRating,
     matchJustification,
     suggestions,
@@ -204,5 +208,5 @@ export function parseTailoredResume(output: string): TailoredSections {
   if (markerResult) return markerResult;
 
   const { resume, suggestions } = splitLegacy(output);
-  return { resume, structured: null, matchRating: null, matchJustification: '', suggestions };
+  return { resume, structured: null, coverLetter: null, matchRating: null, matchJustification: '', suggestions };
 }

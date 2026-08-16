@@ -95,13 +95,13 @@ export function ApplicationsTable({
                   <button
                     type="button"
                     className={
-                      app.resume_version_id != null
+                      app.has_resume_version
                         ? 'p-1.5 flex items-center rounded-lg bg-matcha-400 hover:bg-matcha-600 text-white transition-colors'
                         : 'btn-ghost p-1.5 flex items-center'
                     }
                     onClick={() => onTailor(app)}
                     title={
-                      app.resume_version_id != null
+                      app.has_resume_version
                         ? 'A tailored resume exists — AI-tailor again'
                         : 'AI-tailor your resume for this job'
                     }
