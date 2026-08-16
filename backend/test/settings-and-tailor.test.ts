@@ -196,6 +196,84 @@ test('POST /:id/tailor stores a resume version and links it to the application',
   assert.equal(list[0].id, version.id);
 });
 
+test('POST /:id/tailor persists a cover_letters row when includeCoverLetter is true and the model returns one', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          coverLetter: {
+            contact: { name: 'Jane Doe' },
+            date: 'August 10, 2026',
+            header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+            body: 'Paragraph one.\n\nParagraph two.',
+            footer: 'Sincerely, Jane Doe',
+          },
+        }),
+      },
+    ],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeCoverLetter: true },
+  });
+  assert.equal(res.statusCode, 201);
+  const version = res.json() as ResumeVersion;
+
+  const row = db
+    .prepare('SELECT * FROM cover_letters WHERE application_id = ?')
+    .get(created.id) as { resume_version_id: number; tailored_output: string } | undefined;
+  assert.ok(row);
+  assert.equal(row?.resume_version_id, version.id);
+  const stored = JSON.parse(row!.tailored_output) as { header: { company: string } };
+  assert.equal(stored.header.company, 'Acme Corp');
+});
+
+test('POST /:id/tailor does not persist a cover_letters row when includeCoverLetter is omitted (default false)', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  // Even if the model returns a coverLetter unprompted, it must not be
+  // persisted unless the caller opted in.
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          coverLetter: {
+            contact: { name: 'Jane Doe' },
+            date: 'August 10, 2026',
+            header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+            body: 'Paragraph one.',
+            footer: 'Sincerely, Jane Doe',
+          },
+        }),
+      },
+    ],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 201);
+
+  const row = db.prepare('SELECT * FROM cover_letters WHERE application_id = ?').get(created.id);
+  assert.equal(row, undefined);
+});
+
 test('CSV export (Issue #16) resolves tailoring info — match rating, provider, model — per application', async () => {
   await app.inject({
     method: 'PUT',
@@ -286,6 +364,48 @@ test('DELETE /applications/:id succeeds when the application has a tailored resu
 
   const getRes = await app.inject({ method: 'GET', url: `/applications/${created.id}` });
   assert.equal(getRes.statusCode, 404);
+});
+
+test('DELETE /applications/:id succeeds when the application has both a resume version and a cover letter', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'anthropic', anthropicApiKey: 'sk-ant-secret', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  stubFetch(200, {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          resume: { contact: { name: 'Jane Doe' }, experience: [], education: [], skills: [] },
+          coverLetter: {
+            contact: { name: 'Jane Doe' },
+            date: 'August 10, 2026',
+            header: { recipient: 'Hiring Team', company: 'Acme Corp' },
+            body: 'Paragraph one.',
+            footer: 'Sincerely, Jane Doe',
+          },
+        }),
+      },
+    ],
+    usage: { input_tokens: 100, output_tokens: 50 },
+  });
+  const tailorRes = await app.inject({
+    method: 'POST',
+    url: `/applications/${created.id}/tailor`,
+    payload: { includeCoverLetter: true },
+  });
+  assert.equal(tailorRes.statusCode, 201);
+  assert.ok(db.prepare('SELECT * FROM cover_letters WHERE application_id = ?').get(created.id));
+
+  // cover_letters references both applications(id) and resume_versions(id)
+  // with no ON DELETE CASCADE — this exercises that the delete route clears
+  // it before resume_versions/applications, or the FK constraint rejects it.
+  const deleteRes = await app.inject({ method: 'DELETE', url: `/applications/${created.id}` });
+  assert.equal(deleteRes.statusCode, 204);
+  assert.equal(db.prepare('SELECT * FROM cover_letters WHERE application_id = ?').get(created.id), undefined);
 });
 
 test('GET /:id/tailor-estimate 400s when there is no job description', async () => {

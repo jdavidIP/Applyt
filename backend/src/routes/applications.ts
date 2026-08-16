@@ -639,6 +639,26 @@ export default async function applicationsRoutes(
           created_at: now,
         });
 
+      // Only persist a cover_letters row when one was actually requested AND
+      // the model returned something coerceCoverLetter accepts — a run that
+      // was asked for a cover letter but produced nothing parseable isn't
+      // worth a broken/empty row.
+      if (includeCoverLetter) {
+        const { coverLetter } = parseTailoredResume(output);
+        if (coverLetter) {
+          db.prepare(
+            `INSERT INTO cover_letters
+               (application_id, resume_version_id, tailored_output, created_at)
+             VALUES (@application_id, @resume_version_id, @tailored_output, @created_at)`,
+          ).run({
+            application_id: app.id,
+            resume_version_id: info.lastInsertRowid,
+            tailored_output: JSON.stringify(coverLetter),
+            created_at: now,
+          });
+        }
+      }
+
       db.prepare(
         "UPDATE applications SET updated_at = @now WHERE id = @id",
       ).run({ now, id: app.id });
