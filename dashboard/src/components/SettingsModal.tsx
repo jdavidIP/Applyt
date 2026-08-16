@@ -13,7 +13,14 @@ interface Props {
 const PROVIDER_LABELS: Record<AiProvider, string> = {
   anthropic: 'Anthropic (Claude)',
   openai: 'OpenAI',
+  ollama: 'Ollama (local)',
 };
+
+// Seeds the model field/datalist the moment a user switches to Ollama, before
+// they've ever clicked "Sync models" against their own server — a UI-only
+// convenience, not a backend registry (ai.ts has no per-provider model list
+// for Ollama; the field stays free-text + datalist like the other providers).
+const OLLAMA_RECOMMENDED_MODELS = ['llama3.2:latest', 'llama3.2:1b'] as const;
 
 // One editable pricing row. Prices are kept as strings while editing so the
 // user can freely clear/retype; they're parsed to numbers on save.
@@ -68,6 +75,7 @@ export function SettingsModal({ onClose }: Props) {
   const [completenessWarning, setCompletenessWarning] = useState<MissingField[] | null>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState('');
   const [showAnthropicKey, setShowAnthropicKey] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
@@ -89,6 +97,7 @@ export function SettingsModal({ onClose }: Props) {
         setBaseResume(s.baseResume);
         setHasAnthropicKey(s.hasAnthropicKey);
         setHasOpenaiKey(s.hasOpenaiKey);
+        setOllamaBaseUrl(s.ollamaBaseUrl);
         setPricingRows(pricingToRows(s.modelPricing));
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : 'Failed to load settings.');
@@ -104,8 +113,10 @@ export function SettingsModal({ onClose }: Props) {
   // Live model list for the current provider (CLAUDE.md §8 open question). Only
   // meaningful once a key is configured for that provider; failures (no key yet,
   // provider unreachable) are silent since the model field still accepts free
-  // text via the datalist fallback below.
-  const hasKeyForProvider = provider === 'anthropic' ? hasAnthropicKey : hasOpenaiKey;
+  // text via the datalist fallback below. Ollama is local/unauthenticated —
+  // always "ready" — so this is only a two-way branch for the hosted providers.
+  const hasKeyForProvider =
+    provider === 'ollama' ? true : provider === 'anthropic' ? hasAnthropicKey : hasOpenaiKey;
   useEffect(() => {
     if (loading || !hasKeyForProvider) {
       setAvailableModels([]);
@@ -157,7 +168,7 @@ export function SettingsModal({ onClose }: Props) {
   const [syncingModels, setSyncingModels] = useState(false);
   const [syncModelsError, setSyncModelsError] = useState<string | null>(null);
   const providersWithKeys = AI_PROVIDERS.filter((p) =>
-    p === 'anthropic' ? hasAnthropicKey : hasOpenaiKey,
+    p === 'ollama' ? true : p === 'anthropic' ? hasAnthropicKey : hasOpenaiKey,
   );
 
   async function syncModelsFromProviders() {
@@ -257,6 +268,7 @@ export function SettingsModal({ onClose }: Props) {
     const input: SettingsInput = {
       provider,
       model: model.trim(),
+      ollamaBaseUrl: ollamaBaseUrl.trim(),
       baseResume,
       modelPricing: rowsToPricing(pricingRows),
     };
@@ -266,6 +278,7 @@ export function SettingsModal({ onClose }: Props) {
       const s = await api.saveSettings(input);
       setHasAnthropicKey(s.hasAnthropicKey);
       setHasOpenaiKey(s.hasOpenaiKey);
+      setOllamaBaseUrl(s.ollamaBaseUrl);
       setPricingRows(pricingToRows(s.modelPricing));
       setAnthropicKey('');
       setOpenaiKey('');
@@ -359,7 +372,15 @@ export function SettingsModal({ onClose }: Props) {
               <select
                 className="input-field w-full"
                 value={provider}
-                onChange={(e) => setProvider(e.target.value as AiProvider)}
+                onChange={(e) => {
+                  const next = e.target.value as AiProvider;
+                  setProvider(next);
+                  // Only seeds an empty field — never clobbers a value the
+                  // user already typed, and only fires for Ollama.
+                  if (next === 'ollama' && !model.trim()) {
+                    setModel(OLLAMA_RECOMMENDED_MODELS[0]);
+                  }
+                }}
               >
                 {AI_PROVIDERS.map((p) => (
                   <option key={p} value={p}>
@@ -379,17 +400,26 @@ export function SettingsModal({ onClose }: Props) {
                 required
               />
               <datalist id="model-options">
-                {availableModels.map((m) => (
+                {(provider === 'ollama'
+                  ? [...new Set([...OLLAMA_RECOMMENDED_MODELS, ...availableModels])]
+                  : availableModels
+                ).map((m) => (
                   <option key={m} value={m} />
                 ))}
               </datalist>
               {hasKeyForProvider && (
                 <p className={hintClass}>
-                  {modelsLoading
-                    ? 'Loading your account’s models…'
-                    : availableModels.length > 0
-                      ? `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} available from your account — type to filter, or enter a custom id.`
-                      : 'Could not load your account’s model list — enter a model id manually.'}
+                  {provider === 'ollama'
+                    ? modelsLoading
+                      ? 'Checking your Ollama server…'
+                      : availableModels.length > 0
+                        ? `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} pulled on your Ollama server — type to filter, or enter a custom id.`
+                        : `Pre-filled with ${OLLAMA_RECOMMENDED_MODELS.join(' / ')} — click "Sync models" to list what your Ollama server actually has pulled.`
+                    : modelsLoading
+                      ? 'Loading your account’s models…'
+                      : availableModels.length > 0
+                        ? `${availableModels.length} model${availableModels.length === 1 ? '' : 's'} available from your account — type to filter, or enter a custom id.`
+                        : 'Could not load your account’s model list — enter a model id manually.'}
                 </p>
               )}
             </label>
@@ -434,6 +464,15 @@ export function SettingsModal({ onClose }: Props) {
                   {showOpenaiKey ? <IconEyeOff size={16} stroke={1.75} /> : <IconEye size={16} stroke={1.75} />}
                 </button>
               </div>
+            </label>
+            <label>
+              <span className={labelClass}>Ollama server URL</span>
+              <input
+                className="input-field w-full"
+                value={ollamaBaseUrl}
+                onChange={(e) => setOllamaBaseUrl(e.target.value)}
+                placeholder="http://localhost:11434"
+              />
             </label>
           </div>
 

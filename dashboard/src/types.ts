@@ -88,7 +88,7 @@ export interface StatsResponse {
 
 // ---- Phase 4: AI resume tailoring ----
 
-export const AI_PROVIDERS = ['anthropic', 'openai'] as const;
+export const AI_PROVIDERS = ['anthropic', 'openai', 'ollama'] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 // Per-model pricing (USD per million tokens), user-editable in Settings.
@@ -105,6 +105,7 @@ export interface PublicSettings {
   baseResume: string;
   hasAnthropicKey: boolean;
   hasOpenaiKey: boolean;
+  ollamaBaseUrl: string;
   modelPricing: ModelPricing;
 }
 
@@ -115,6 +116,7 @@ export interface SettingsInput {
   model?: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  ollamaBaseUrl?: string;
   baseResume?: string;
   modelPricing?: ModelPricing;
 }
