@@ -140,7 +140,10 @@ export interface StatsResponse {
 
 // ---- Phase 4: AI resume tailoring ----
 
-export const AI_PROVIDERS = ["anthropic", "openai"] as const;
+// 'ollama' runs against a local (or LAN) Ollama server instead of a hosted
+// API: no key, no per-token cost, and a user-configurable base URL rather
+// than a fixed public endpoint (see Settings.ollamaBaseUrl).
+export const AI_PROVIDERS = ["anthropic", "openai", "ollama"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 // Per-model pricing, quoted the way providers publish it: dollars per MILLION
@@ -169,6 +172,11 @@ export interface Settings {
   model: string;
   anthropicApiKey: string;
   openaiApiKey: string;
+  // Where the user's Ollama server lives. Unlike the hosted providers' fixed
+  // endpoints this is inherently per-machine (different port, or a box on the
+  // LAN), so it's a real setting rather than a constant — overridable by the
+  // OLLAMA_BASE_URL env var, which is how Docker points at the compose service.
+  ollamaBaseUrl: string;
   baseResume: string;
   modelPricing: ModelPricing;
 }
@@ -181,6 +189,7 @@ export interface UpdateSettingsBody {
   model?: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  ollamaBaseUrl?: string;
   baseResume?: string;
   modelPricing?: ModelPricing;
 }
@@ -193,6 +202,9 @@ export interface PublicSettings {
   baseResume: string;
   hasAnthropicKey: boolean;
   hasOpenaiKey: boolean;
+  // Not a secret (a localhost URL), so unlike the API keys this is echoed
+  // back verbatim rather than reduced to a has-it boolean.
+  ollamaBaseUrl: string;
   modelPricing: ModelPricing;
 }
 

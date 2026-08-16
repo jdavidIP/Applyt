@@ -19,13 +19,22 @@ let app: FastifyInstance;
 const savedEnv = {
   anthropic: process.env.ANTHROPIC_API_KEY,
   openai: process.env.OPENAI_API_KEY,
+  ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
 };
 const originalFetch = global.fetch;
+
+// Restores an env var to its pre-test value, unsetting it when it wasn't set
+// before (assigning `undefined` would store the string "undefined").
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 before(async () => {
   process.env.NODE_ENV = 'test';
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.OLLAMA_BASE_URL;
   app = await buildApp(db, settings);
   await app.ready();
 });
@@ -34,8 +43,9 @@ after(async () => {
   await app.close();
   db.close();
   global.fetch = originalFetch;
-  process.env.ANTHROPIC_API_KEY = savedEnv.anthropic;
-  process.env.OPENAI_API_KEY = savedEnv.openai;
+  restoreEnv('ANTHROPIC_API_KEY', savedEnv.anthropic);
+  restoreEnv('OPENAI_API_KEY', savedEnv.openai);
+  restoreEnv('OLLAMA_BASE_URL', savedEnv.ollamaBaseUrl);
   rmSync(settingsPath, { force: true });
 });
 
@@ -47,6 +57,7 @@ beforeEach(() => {
   db.exec('DELETE FROM resume_versions');
   db.exec('DELETE FROM applications');
   rmSync(settingsPath, { force: true }); // reset settings to defaults each test
+  delete process.env.OLLAMA_BASE_URL; // one test sets it; don't leak into others
   global.fetch = originalFetch;
 });
 
@@ -955,4 +966,148 @@ test('POST /:id/tailor 502s and surfaces the provider error on an upstream failu
   // A failed tailor must not create a stray resume_versions row.
   const list = (await app.inject({ method: 'GET', url: `/applications/${created.id}/resume-versions` })).json() as ResumeVersion[];
   assert.equal(list.length, 0);
+});
+
+// ---- Ollama (issue #34): a local, keyless, zero-cost third provider ----
+
+test('PUT /settings round-trips ollamaBaseUrl and defaults it when never set', async () => {
+  const before = (await app.inject({ method: 'GET', url: '/settings' })).json() as PublicSettings;
+  assert.equal(before.ollamaBaseUrl, 'http://localhost:11434');
+
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'ollama', model: 'llama3.2:1b', ollamaBaseUrl: 'http://192.168.1.50:11434' },
+  });
+  assert.equal(res.statusCode, 200);
+  const s = res.json() as PublicSettings;
+  assert.equal(s.provider, 'ollama');
+  assert.equal(s.ollamaBaseUrl, 'http://192.168.1.50:11434');
+});
+
+test('OLLAMA_BASE_URL env var overrides the stored ollamaBaseUrl', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { ollamaBaseUrl: 'http://stored-value:11434' },
+  });
+  // Same env-wins-over-stored precedence as the provider API keys — this is
+  // how docker-compose points the backend at the sibling `ollama` service.
+  process.env.OLLAMA_BASE_URL = 'http://ollama:11434';
+  const s = (await app.inject({ method: 'GET', url: '/settings' })).json() as PublicSettings;
+  assert.equal(s.ollamaBaseUrl, 'http://ollama:11434');
+});
+
+test('GET /settings/models?provider=ollama lists pulled models without any API key', async () => {
+  // Deliberately no key configured for anything — Ollama must not be gated on one.
+  let capturedUrl = '';
+  global.fetch = (async (url: string) => {
+    capturedUrl = String(url);
+    return new Response(
+      JSON.stringify({ models: [{ name: 'llama3.2:latest' }, { name: 'llama3.2:1b' }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({ method: 'GET', url: '/settings/models?provider=ollama' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { models: string[] }).models, ['llama3.2:1b', 'llama3.2:latest']);
+  assert.equal(capturedUrl, 'http://localhost:11434/api/tags');
+});
+
+test('GET /settings/models?provider=ollama strips a trailing slash from the configured base URL', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { ollamaBaseUrl: 'http://localhost:11434/' },
+  });
+  let capturedUrl = '';
+  global.fetch = (async (url: string) => {
+    capturedUrl = String(url);
+    return new Response(JSON.stringify({ models: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as unknown as typeof fetch;
+
+  await app.inject({ method: 'GET', url: '/settings/models?provider=ollama' });
+  assert.equal(capturedUrl, 'http://localhost:11434/api/tags');
+});
+
+test('POST /:id/tailor works with provider=ollama and no API key, at zero cost', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'ollama', model: 'llama3.2:latest', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  let capturedUrl = '';
+  let capturedBody: Record<string, unknown> = {};
+  global.fetch = (async (url: string, init?: RequestInit) => {
+    capturedUrl = String(url);
+    capturedBody = JSON.parse(init!.body as string) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        message: { role: 'assistant', content: 'OLLAMA TAILORED OUTPUT' },
+        prompt_eval_count: 900,
+        eval_count: 400,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 201);
+  const version = res.json() as ResumeVersion;
+  assert.equal(version.ai_provider, 'ollama');
+  assert.equal(version.tailored_output, 'OLLAMA TAILORED OUTPUT');
+  assert.equal(version.input_tokens, 900);
+  assert.equal(version.output_tokens, 400);
+  // Runs on the user's own hardware: a real 0, not an unpriced null.
+  assert.equal(version.cost, 0);
+
+  // Native /api/chat (not the OpenAI-compat shim) with JSON mode forced, so
+  // the strict-envelope contract survives less obedient local models.
+  assert.equal(capturedUrl, 'http://localhost:11434/api/chat');
+  assert.equal(capturedBody.format, 'json');
+  assert.equal(capturedBody.stream, false);
+  assert.equal(capturedBody.model, 'llama3.2:latest');
+});
+
+test('POST /:id/tailor 502s with a "is it running?" hint when Ollama is unreachable', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'ollama', model: 'llama3.2:1b', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  // What a stopped local server actually looks like: a socket-level failure,
+  // not an HTTP status, so there's no provider error body to surface.
+  global.fetch = (async () => {
+    throw new TypeError('fetch failed');
+  }) as unknown as typeof fetch;
+
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 502);
+  const { error } = res.json() as { error: string };
+  assert.match(error, /Could not connect to Ollama at http:\/\/localhost:11434/);
+  assert.match(error, /is it running\?/);
+});
+
+test('POST /:id/tailor surfaces an Ollama HTTP error (e.g. model not pulled)', async () => {
+  await app.inject({
+    method: 'PUT',
+    url: '/settings',
+    payload: { provider: 'ollama', model: 'llama3.2:70b', baseResume: 'BASE RESUME' },
+  });
+  const created = await createApp({ job_description: 'Senior React role.' });
+
+  // Ollama reports errors as a bare { error: "..." } string, which
+  // providerError()'s string branch already handles.
+  stubFetch(404, { error: 'model "llama3.2:70b" not found, try pulling it first' });
+  const res = await app.inject({ method: 'POST', url: `/applications/${created.id}/tailor` });
+  assert.equal(res.statusCode, 502);
+  assert.match((res.json() as { error: string }).error, /try pulling it first/);
 });

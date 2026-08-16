@@ -26,6 +26,10 @@ export interface TailorParams {
   // it reduces overflow for typical resumes without guaranteeing it.
   targetOnePage: boolean;
   includeCoverLetter: boolean;
+  // Only read when provider === 'ollama'. Unlike Anthropic/OpenAI (fixed
+  // endpoints resolved inside this file), an Ollama server's address is a
+  // user setting, so the caller supplies it — see settings.resolveOllamaBaseUrl.
+  ollamaBaseUrl?: string;
 }
 
 export interface TailorResult {
@@ -319,6 +323,83 @@ async function callOpenai(
   };
 }
 
+// Ollama runs locally, so its address comes from settings rather than a
+// constant. Trailing slashes are stripped so a user-entered
+// "http://localhost:11434/" doesn't produce a double-slashed request path.
+function ollamaUrl(baseUrl: string | undefined, path: string): string {
+  const base = (baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!base) {
+    throw new Error(
+      "No Ollama server URL is configured. Set one in Settings first.",
+    );
+  }
+  return `${base}${path}`;
+}
+
+// A local Ollama server that isn't running fails at the socket level, which
+// surfaces as an opaque "fetch failed" TypeError rather than an HTTP status.
+// The most likely cause by far is "you didn't start it", so say that instead.
+async function ollamaFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    const base = new URL(url).origin;
+    throw new Error(
+      `Could not connect to Ollama at ${base} — is it running? (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    );
+  }
+}
+
+async function callOllama(
+  p: TailorParams,
+): Promise<{ text: string; usage: TokenUsage }> {
+  const res = await ollamaFetch(ollamaUrl(p.ollamaBaseUrl, "/api/chat"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: p.model,
+      stream: false,
+      // Ollama's native structured-output switch. The envelope contract
+      // parseTailoredResume() depends on is strict JSON, and small local
+      // models honor a "JSON only" instruction far less reliably than
+      // frontier hosted ones — this constrains decoding rather than trusting
+      // the prompt alone. (This is also why the native /api/chat is used
+      // instead of Ollama's OpenAI-compatible shim, which doesn't expose it.)
+      format: "json",
+      options: { num_predict: MAX_TOKENS },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt(
+            p.includeMatchRating,
+            p.includeSuggestions,
+            p.targetOnePage,
+            p.includeCoverLetter,
+          ),
+        },
+        { role: "user", content: userPrompt(p) },
+      ],
+    }),
+  });
+  if (!res.ok) throw await providerError("Ollama", res);
+  const data = (await res.json()) as {
+    message?: { content?: string };
+    prompt_eval_count?: number;
+    eval_count?: number;
+  };
+  const text = data.message?.content?.trim() ?? "";
+  if (!text) throw new Error("Ollama returned an empty response.");
+  return {
+    text,
+    usage: {
+      inputTokens: data.prompt_eval_count ?? 0,
+      outputTokens: data.eval_count ?? 0,
+    },
+  };
+}
+
 // Normalize a failed provider response into a single Error carrying the
 // provider's own message when we can parse one, so the dashboard can surface a
 // useful reason (bad key, rate limit, unknown model) rather than a bare status.
@@ -399,21 +480,38 @@ async function listOpenaiModels(apiKey: string): Promise<string[]> {
   return dedupeDatedSnapshots(textChatModels);
 }
 
+// Whatever the user has actually pulled onto their own Ollama server — the
+// local equivalent of the hosted providers' account model lists. No key, and
+// no dedupe/relevance filtering: these ids are exactly what the user chose to
+// download, so there's nothing to prune.
+async function listOllamaModels(baseUrl: string | undefined): Promise<string[]> {
+  const res = await ollamaFetch(ollamaUrl(baseUrl, "/api/tags"));
+  if (!res.ok) throw await providerError("Ollama", res);
+  const data = (await res.json()) as { models?: { name: string }[] };
+  return (data.models ?? []).map((m) => m.name).sort();
+}
+
+// Credentials differ per provider — a key for the hosted ones, a base URL for
+// Ollama — so this takes an options bag rather than a bare apiKey.
 export async function listModels(
   provider: AiProvider,
-  apiKey: string,
+  creds: { apiKey?: string; baseUrl?: string },
 ): Promise<string[]> {
+  if (provider === "ollama") return listOllamaModels(creds.baseUrl);
   return provider === "openai"
-    ? listOpenaiModels(apiKey)
-    : listAnthropicModels(apiKey);
+    ? listOpenaiModels(creds.apiKey ?? "")
+    : listAnthropicModels(creds.apiKey ?? "");
 }
 
 export async function tailorResume(
   params: TailorParams,
 ): Promise<TailorResult> {
-  const { text, usage } =
-    params.provider === "openai"
-      ? await callOpenai(params)
-      : await callAnthropic(params);
+  const call =
+    params.provider === "ollama"
+      ? callOllama
+      : params.provider === "openai"
+        ? callOpenai
+        : callAnthropic;
+  const { text, usage } = await call(params);
   return { output: text, provider: params.provider, usage };
 }

@@ -55,12 +55,18 @@ export default async function settingsRoutes(
       if (!provider || !AI_PROVIDERS.includes(provider)) {
         return reply.code(400).send({ error: 'A valid provider query param is required.' });
       }
+      // Ollama is local and unauthenticated, so the key gate doesn't apply to
+      // it — it needs a reachable base URL instead, which always resolves to
+      // at least the default.
       const apiKey = settings.resolveApiKey(provider);
-      if (!apiKey) {
+      if (provider !== 'ollama' && !apiKey) {
         return reply.code(400).send({ error: `No API key configured for ${provider}.` });
       }
       try {
-        const models = await listModels(provider, apiKey);
+        const models = await listModels(provider, {
+          apiKey,
+          baseUrl: settings.resolveOllamaBaseUrl(),
+        });
         return { models };
       } catch (err) {
         return reply

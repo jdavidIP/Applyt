@@ -56,6 +56,7 @@ export const updateSettingsSchema = {
     // Keys and resume may be set to '' to clear them, so no minLength.
     anthropicApiKey: { type: 'string' },
     openaiApiKey: { type: 'string' },
+    ollamaBaseUrl: { type: 'string' },
     baseResume: { type: 'string' },
     // Per-model pricing table: an object keyed by model id, each value a
     // { inputPerMillion, outputPerMillion } pair (USD per million tokens).
