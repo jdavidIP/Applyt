@@ -56,6 +56,32 @@ Alternatively, skip this and set the key from the dashboard's Settings screen
 after startup — it's saved into `backend/data/settings.json` inside the persisted
 volume either way.
 
+### Local AI tailoring with Ollama (no API key, opt-in)
+
+Prefer to run tailoring entirely on your own hardware instead of a hosted
+provider? An `ollama` server plus a one-shot puller for the two recommended
+default models (`llama3.2:latest`, `llama3.2:1b`) are defined in
+`docker-compose.yml`, but **not** started by a plain `docker compose up` —
+they're behind an opt-in Compose profile so existing users who only use their
+own Anthropic/OpenAI key don't get a surprise multi-GB download on their next
+rebuild. Start it with:
+
+```bash
+docker compose --profile ollama up --build
+```
+
+The first run pulls the `ollama/ollama` image and both models (several GB
+total) — expect it to take a while. `ollama pull` hash-checks what's already
+present, so every run after the first is fast, not a re-download. Once it's
+up, select **Ollama (local)** as the provider in the dashboard's Settings
+screen; the backend is already wired to reach it via `OLLAMA_BASE_URL:
+http://ollama:11434` in `docker-compose.yml`, so no extra configuration is
+needed. Model weights persist in the `ollama-data` volume across restarts.
+
+If you're running the backend outside Docker (Option B below) with a local
+`ollama serve` instead, the default `OLLAMA_BASE_URL` of
+`http://localhost:11434` already points at it — nothing extra to set.
+
 ### Rebuilding after pulling changes
 
 ```bash
@@ -165,6 +191,7 @@ pick up changes.
 | `CORS_ORIGIN`        | backend   | `http://localhost:5173`          | Comma-separated allowed dashboard origins          |
 | `ANTHROPIC_API_KEY`  | backend   | —                                 | Overrides the stored Anthropic key, if set         |
 | `OPENAI_API_KEY`     | backend   | —                                 | Overrides the stored OpenAI key, if set            |
+| `OLLAMA_BASE_URL`    | backend   | `http://localhost:11434`         | Overrides the stored Ollama server URL, if set     |
 | `VITE_API_BASE`      | dashboard | `/api` (proxied)                 | Backend base URL the dashboard calls               |
 
 Your data lives in a single SQLite file (`backend/data/applications.db`, or the

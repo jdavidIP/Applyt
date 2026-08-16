@@ -5,7 +5,7 @@
 A **self-hosted, open-source job application tracker** with two pillars:
 
 1. **Automatic application tracking** across Indeed, LinkedIn, and Glassdoor via a browser extension that observes the user's own apply actions in real time, stores them locally, and lets the user view/edit/delete entries in a local web dashboard.
-2. **AI resume tailoring** — the user supplies their own Claude or OpenAI API key, and can generate a tailored resume/suggestions against a specific saved job entry.
+2. **AI resume tailoring** — the user supplies their own Claude or OpenAI API key, or points at a local/LAN Ollama server (no key needed), and can generate a tailored resume/suggestions against a specific saved job entry.
 
 This is **not** a hosted SaaS product. It is distributed as a public GitHub repo that each user clones and runs on their own machine. This is a deliberate architectural decision — see Section 3.
 
@@ -37,7 +37,7 @@ Don't reintroduce multi-tenancy, hosted storage, or centralized key handling wit
 - **Extension:** Manifest V3, TypeScript, content scripts per platform (`indeed.ts`, `linkedin.ts`, `glassdoor.ts`), background service worker for message routing.
 - **Local backend:** Node.js (Express or Fastify), TypeScript, SQLite (via `better-sqlite3` or `drizzle-orm`). Runs on `localhost` on a configurable default port (e.g. `4317`).
 - **Dashboard:** React (Vite) or Next.js, talks to the local backend over `http://localhost:<port>`.
-- **AI calls:** Backend proxies requests to Anthropic/OpenAI using the user's own key from `.env` or a local settings file — never hardcoded, never sent anywhere else.
+- **AI calls:** Backend proxies requests to Anthropic/OpenAI using the user's own key from `.env` or a local settings file (never hardcoded, never sent anywhere else), or to a user-configured local/LAN Ollama server (no key required).
 - **Distribution:** public GitHub repo, optional `docker-compose.yml` for one-command setup, README with manual setup steps for non-Docker users.
 
 ## 5. Data model (SQLite)

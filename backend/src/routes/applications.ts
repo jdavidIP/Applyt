@@ -47,6 +47,7 @@ import {
 
 interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
+  settings: SettingsStore;
 }
 
 export default async function applicationsRoutes(
@@ -67,8 +68,14 @@ export default async function applicationsRoutes(
                 EXISTS(SELECT 1 FROM resume_versions WHERE resume_versions.application_id = applications.id) AS has_resume_version
            FROM applications WHERE id = ?`,
       )
-      .get(id) as (Omit<Application, "has_resume_version"> & { has_resume_version: number }) | undefined;
-    return row ? { ...row, has_resume_version: !!row.has_resume_version } : undefined;
+      .get(id) as
+      | (Omit<Application, "has_resume_version"> & {
+          has_resume_version: number;
+        })
+      | undefined;
+    return row
+      ? { ...row, has_resume_version: !!row.has_resume_version }
+      : undefined;
   }
 
   // GET /applications — list with optional platform/status filter, sort, and
@@ -131,11 +138,16 @@ export default async function applicationsRoutes(
            FROM applications${whereSql}` +
         ` ORDER BY ${sortCol} ${sortDir}, id ${sortDir}` +
         ` LIMIT @pageSize OFFSET @offset`;
-      const rows = db.prepare(sql).all({ ...params, pageSize, offset }) as (Omit<
+      const rows = db
+        .prepare(sql)
+        .all({ ...params, pageSize, offset }) as (Omit<
         Application,
         "has_resume_version"
       > & { has_resume_version: number })[];
-      const items = rows.map((r) => ({ ...r, has_resume_version: !!r.has_resume_version }));
+      const items = rows.map((r) => ({
+        ...r,
+        has_resume_version: !!r.has_resume_version,
+      }));
 
       return { items, total, page: clampedPage, pageSize };
     },
@@ -155,10 +167,12 @@ export default async function applicationsRoutes(
     // Map.set() per row in iteration order, so ordering ascending by id
     // means the last (newest) row for a given application overwrites any
     // earlier one.
-    const versions = db.prepare(
-      `SELECT id, application_id, ai_provider, model, tailored_output
+    const versions = db
+      .prepare(
+        `SELECT id, application_id, ai_provider, model, tailored_output
          FROM resume_versions ORDER BY id ASC`,
-    ).all() as Pick<
+      )
+      .all() as Pick<
       ResumeVersion,
       "id" | "application_id" | "ai_provider" | "model" | "tailored_output"
     >[];
@@ -563,8 +577,10 @@ export default async function applicationsRoutes(
         });
       }
 
+      // Ollama runs locally with no auth, so it's exempt from the key gate —
+      // an unreachable server surfaces later as a 502 from ai.ts instead.
       const apiKey = settings.resolveApiKey(cfg.provider);
-      if (!apiKey) {
+      if (cfg.provider !== "ollama" && !apiKey) {
         return reply.code(400).send({
           error: `No API key configured for ${cfg.provider}. Add one in Settings first.`,
         });
@@ -575,7 +591,8 @@ export default async function applicationsRoutes(
       try {
         const result = await tailorResume({
           provider: cfg.provider,
-          apiKey,
+          apiKey: apiKey ?? "",
+          ollamaBaseUrl: settings.resolveOllamaBaseUrl(),
           model: cfg.model,
           baseResume,
           jobDescription,
@@ -611,11 +628,16 @@ export default async function applicationsRoutes(
 
       // Actual cost = tokens × the configured price for this model. NULL when the
       // model has no pricing entry — we show "unknown", never a fabricated number.
+      // Ollama runs on the user's own hardware, so it's a real, known 0 rather
+      // than an unpriced unknown — don't send it through the pricing table.
       const price = cfg.modelPricing[cfg.model];
-      const cost = price
-        ? (usage.inputTokens / 1_000_000) * price.inputPerMillion +
-          (usage.outputTokens / 1_000_000) * price.outputPerMillion
-        : null;
+      const cost =
+        cfg.provider === "ollama"
+          ? 0
+          : price
+            ? (usage.inputTokens / 1_000_000) * price.inputPerMillion +
+              (usage.outputTokens / 1_000_000) * price.outputPerMillion
+            : null;
 
       const now = new Date().toISOString();
       const info = db

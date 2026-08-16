@@ -54,7 +54,7 @@ export type CurrentJobResponse = CurrentJobInfo | null;
 // the backend would 400 for a missing resume/key). Mirrors the relevant fields
 // of backend PublicSettings.
 export interface PublicSettingsView {
-  provider: 'anthropic' | 'openai';
+  provider: 'anthropic' | 'openai' | 'ollama';
   baseResume: string;
   hasAnthropicKey: boolean;
   hasOpenaiKey: boolean;

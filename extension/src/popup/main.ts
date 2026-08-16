@@ -230,11 +230,20 @@ async function init(): Promise<void> {
   let ready = false;
   try {
     const settings = await getSettings();
-    const hasKey = settings.provider === 'openai' ? settings.hasOpenaiKey : settings.hasAnthropicKey;
+    // Ollama is local/unauthenticated — never gated on a key, unlike the two
+    // hosted providers.
+    const hasKey =
+      settings.provider === 'ollama'
+        ? true
+        : settings.provider === 'openai'
+          ? settings.hasOpenaiKey
+          : settings.hasAnthropicKey;
     ready = Boolean(settings.baseResume.trim()) && hasKey;
     if (!ready) {
       controlsHintEl.textContent =
-        'Add a base resume and an API key in the dashboard Settings before tailoring.';
+        settings.provider === 'ollama'
+          ? 'Add a base resume in the dashboard Settings before tailoring.'
+          : 'Add a base resume and an API key in the dashboard Settings before tailoring.';
       controlsHintEl.hidden = false;
       tailorBtn.disabled = true;
     }

@@ -31,8 +31,8 @@ Everything runs on the user's own machine. The extension and the dashboard are t
 different front ends for the **same backend on the same port** — there is
 deliberately only one storage path (see CLAUDE.md §2). Nothing here talks to a
 server we operate; the only outbound network call the backend ever makes is the
-AI tailoring request to the user's own configured Anthropic/OpenAI account, using
-a key that never leaves their machine.
+AI tailoring request to the user's own configured provider — Anthropic, OpenAI (using
+a key that never leaves their machine), or a local/LAN Ollama server (no key at all).
 
 ## Why self-hosted (and what that buys us)
 
@@ -75,7 +75,8 @@ without an explicit decision to do so; it undoes the reasoning above.
   so both report formats always agree on the same numbers.
 - `src/ai.ts` — the one place that makes an outbound network call: direct
   `fetch` requests to the Anthropic or OpenAI Messages API using the user's own
-  key, no SDK dependency.
+  key, or to a local/LAN Ollama server's native API (no key) — no SDK dependency
+  for any of the three.
 - `src/resumeRender.ts` / `src/resumeSchema.ts` — turns a tailored resume
   (structured JSON: contact, summary, experience, projects, education, skills)
   into a single ATS-approved PDF/DOCX template. `src/tailoredResume.ts` parses

@@ -127,13 +127,16 @@ applied"**, or add/edit an entry directly in the dashboard.
 
 ## AI resume tailoring
 
-1. Open **Settings** in the dashboard, choose a provider (Anthropic or OpenAI), and
-   paste in your own API key and base resume. Keys are stored locally in
-   `backend/data/settings.json` (gitignored) and never leave your machine except in
-   the outbound call to your chosen provider. Once a key is saved, the model field
-   offers a live list of models from your own account (fetched from the provider
-   using that key) — you can still type a custom model id if you prefer one that
-   isn't listed.
+1. Open **Settings** in the dashboard, choose a provider (Anthropic, OpenAI, or
+   Ollama), and paste in your own API key and base resume. Keys are stored locally
+   in `backend/data/settings.json` (gitignored) and never leave your machine except
+   in the outbound call to your chosen provider. Once a key is saved, the model
+   field offers a live list of models from your own account (fetched from the
+   provider using that key) — you can still type a custom model id if you prefer
+   one that isn't listed. **Ollama** runs entirely on your own machine (or LAN) —
+   no key, no per-token cost, no data ever leaving your network. It needs no key,
+   just a reachable server URL (default `http://localhost:11434`); the model field
+   is pre-filled with `llama3.2:latest`/`llama3.2:1b` to get started.
 2. On any application with a job description, click **Tailor for this job**. Two
    checkboxes let you choose whether to also receive a **match rating** (0–5
    stars, with a short justification of which requirements you meet, partially
@@ -153,7 +156,14 @@ applied"**, or add/edit an entry directly in the dashboard.
 
 API keys can also be supplied via `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment
 variables, which take precedence over the stored settings file — useful if you'd
-rather not have the key on disk at all.
+rather not have the key on disk at all. `OLLAMA_BASE_URL` works the same way for
+Ollama's server address.
+
+Running under Docker and want local tailoring with zero manual Ollama install?
+`docker compose --profile ollama up --build` adds an `ollama` server plus a
+one-shot puller that pulls both default models automatically. It's opt-in and
+not part of the default `docker compose up` — expect a multi-GB download the
+first time you run it. See [SETUP.md](SETUP.md) for details.
 
 Per-model pricing (USD per million tokens) is editable in Settings; a model with no
 configured price simply shows cost as "unknown" rather than a guess.
@@ -169,6 +179,7 @@ configured price simply shows cost as "unknown" rather than a guess.
 | `CORS_ORIGIN`        | backend  | `http://localhost:5173`         | Comma-separated allowed dashboard origins          |
 | `ANTHROPIC_API_KEY`  | backend  | —                                | Overrides the stored Anthropic key, if set         |
 | `OPENAI_API_KEY`     | backend  | —                                | Overrides the stored OpenAI key, if set            |
+| `OLLAMA_BASE_URL`    | backend  | `http://localhost:11434`        | Overrides the stored Ollama server URL, if set     |
 | `VITE_API_BASE`      | dashboard| `/api` (proxied)                | Backend base URL the dashboard calls               |
 
 Your data lives in a single SQLite file at `backend/data/applications.db` (gitignored).

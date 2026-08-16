@@ -26,6 +26,10 @@ export interface TailorParams {
   // it reduces overflow for typical resumes without guaranteeing it.
   targetOnePage: boolean;
   includeCoverLetter: boolean;
+  // Only read when provider === 'ollama'. Unlike Anthropic/OpenAI (fixed
+  // endpoints resolved inside this file), an Ollama server's address is a
+  // user setting, so the caller supplies it — see settings.resolveOllamaBaseUrl.
+  ollamaBaseUrl?: string;
 }
 
 export interface TailorResult {
@@ -63,6 +67,142 @@ function openaiModelsUrl(): string {
   return process.env.OPENAI_BASE_URL?.trim()
     ? openaiUrl().replace(/\/chat\/completions$/, "/models")
     : "https://api.openai.com/v1/models";
+}
+
+// JSON Schema mirroring TailorResponseEnvelope (resumeSchema.ts), for
+// providers that can constrain decoding to a schema rather than merely to
+// "some valid JSON" — currently Ollama's `format` field, which compiles this
+// into a decoding grammar.
+//
+// This matters far more for small local models than for frontier hosted ones.
+// A llama3.2:3b run asked only for `format: 'json'` returned perfectly valid
+// JSON in a completely invented shape (flat "skills"/"web & frontend"/...
+// keys, no `resume` object at all) — parseTailoredResume() correctly rejected
+// it and fell back to flat text, but the tailored resume was effectively lost.
+// A schema makes that failure structurally impossible instead of relying on
+// the model to follow prose instructions.
+//
+// Built from the same flags as systemPrompt() below and kept deliberately
+// adjacent to it: the prompt's illustrative example and this schema describe
+// one shape twice, so they have to be edited together.
+//
+// `anyOf` keeps the Issue #14 rejection shape reachable — without it, a
+// schema requiring `resume` would force the model to fabricate a resume
+// structure for input that clearly isn't a resume, which is exactly what that
+// path exists to avoid.
+function tailorResponseSchema(
+  includeMatchRating: boolean,
+  includeSuggestions: boolean,
+  includeCoverLetter: boolean,
+): Record<string, unknown> {
+  const str = { type: "string" };
+  const strArray = { type: "array", items: { type: "string" } };
+  const object = (
+    properties: Record<string, unknown>,
+    required: string[],
+  ): Record<string, unknown> => ({
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  });
+
+  const contact = object(
+    { name: str, email: str, phone: str, location: str, links: strArray },
+    ["name"],
+  );
+
+  const resume = object(
+    {
+      contact,
+      summary: str,
+      experience: {
+        type: "array",
+        items: object(
+          {
+            title: str,
+            company: str,
+            location: str,
+            startDate: str,
+            endDate: str,
+            bullets: strArray,
+          },
+          ["title", "company", "startDate", "endDate", "bullets"],
+        ),
+      },
+      projects: {
+        type: "array",
+        items: object({ name: str, dateRange: str, bullets: strArray }, [
+          "name",
+          "bullets",
+        ]),
+      },
+      education: {
+        type: "array",
+        items: object(
+          {
+            institution: str,
+            degree: str,
+            dates: str,
+            honors: str,
+            coursework: str,
+          },
+          ["institution", "degree", "dates"],
+        ),
+      },
+      skills: {
+        type: "array",
+        items: object({ label: str, items: strArray }, ["label", "items"]),
+      },
+    },
+    ["contact", "experience", "education", "skills"],
+  );
+
+  // Optional sections are omitted from the schema entirely (not just left out
+  // of `required`) when not requested — combined with additionalProperties
+  // false, that makes an unrequested section unemittable rather than merely
+  // discouraged, matching the "never asked to produce a field the user
+  // doesn't want" design.
+  const envelopeProps: Record<string, unknown> = { resume };
+  const envelopeRequired = ["resume"];
+  if (includeCoverLetter) {
+    envelopeProps.coverLetter = object(
+      {
+        contact,
+        date: str,
+        header: object({ recipient: str, company: str }, [
+          "recipient",
+          "company",
+        ]),
+        body: str,
+        footer: str,
+      },
+      ["contact", "date", "header", "body", "footer"],
+    );
+    envelopeRequired.push("coverLetter");
+  }
+  if (includeMatchRating) {
+    // An enum rather than integer+minimum/maximum: numeric range constraints
+    // don't survive schema-to-grammar conversion reliably, an explicit set of
+    // literals does. parseJsonEnvelope() still range-checks regardless.
+    envelopeProps.matchRating = { type: "integer", enum: [0, 1, 2, 3, 4, 5] };
+    envelopeProps.matchJustification = strArray;
+    envelopeRequired.push("matchRating", "matchJustification");
+  }
+  if (includeSuggestions) {
+    envelopeProps.suggestions = strArray;
+    envelopeRequired.push("suggestions");
+  }
+
+  return {
+    anyOf: [
+      object(envelopeProps, envelopeRequired),
+      object({ error: { type: "string", enum: ["not_a_resume"] }, message: str }, [
+        "error",
+        "message",
+      ]),
+    ],
+  };
 }
 
 // A single JSON object (TailorResponseEnvelope, resumeSchema.ts) rather than
@@ -319,6 +459,89 @@ async function callOpenai(
   };
 }
 
+// Ollama runs locally, so its address comes from settings rather than a
+// constant. Trailing slashes are stripped so a user-entered
+// "http://localhost:11434/" doesn't produce a double-slashed request path.
+function ollamaUrl(baseUrl: string | undefined, path: string): string {
+  const base = (baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!base) {
+    throw new Error(
+      "No Ollama server URL is configured. Set one in Settings first.",
+    );
+  }
+  return `${base}${path}`;
+}
+
+// A local Ollama server that isn't running fails at the socket level, which
+// surfaces as an opaque "fetch failed" TypeError rather than an HTTP status.
+// The most likely cause by far is "you didn't start it", so say that instead.
+async function ollamaFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    const base = new URL(url).origin;
+    throw new Error(
+      `Could not connect to Ollama at ${base} — is it running? (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    );
+  }
+}
+
+async function callOllama(
+  p: TailorParams,
+): Promise<{ text: string; usage: TokenUsage }> {
+  const res = await ollamaFetch(ollamaUrl(p.ollamaBaseUrl, "/api/chat"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: p.model,
+      stream: false,
+      // A full JSON Schema, not the bare "json" string: the latter only
+      // guarantees syntactically valid JSON, which a small local model will
+      // happily satisfy with an entirely invented shape (see
+      // tailorResponseSchema above). Ollama compiles this into a decoding
+      // grammar, so the envelope shape parseTailoredResume() expects is
+      // enforced token-by-token rather than merely requested in the prompt.
+      // (This is also why the native /api/chat is used instead of Ollama's
+      // OpenAI-compatible shim, which doesn't expose `format`.)
+      format: tailorResponseSchema(
+        p.includeMatchRating,
+        p.includeSuggestions,
+        p.includeCoverLetter,
+      ),
+      options: { num_predict: MAX_TOKENS },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt(
+            p.includeMatchRating,
+            p.includeSuggestions,
+            p.targetOnePage,
+            p.includeCoverLetter,
+          ),
+        },
+        { role: "user", content: userPrompt(p) },
+      ],
+    }),
+  });
+  if (!res.ok) throw await providerError("Ollama", res);
+  const data = (await res.json()) as {
+    message?: { content?: string };
+    prompt_eval_count?: number;
+    eval_count?: number;
+  };
+  const text = data.message?.content?.trim() ?? "";
+  if (!text) throw new Error("Ollama returned an empty response.");
+  return {
+    text,
+    usage: {
+      inputTokens: data.prompt_eval_count ?? 0,
+      outputTokens: data.eval_count ?? 0,
+    },
+  };
+}
+
 // Normalize a failed provider response into a single Error carrying the
 // provider's own message when we can parse one, so the dashboard can surface a
 // useful reason (bad key, rate limit, unknown model) rather than a bare status.
@@ -399,21 +622,38 @@ async function listOpenaiModels(apiKey: string): Promise<string[]> {
   return dedupeDatedSnapshots(textChatModels);
 }
 
+// Whatever the user has actually pulled onto their own Ollama server — the
+// local equivalent of the hosted providers' account model lists. No key, and
+// no dedupe/relevance filtering: these ids are exactly what the user chose to
+// download, so there's nothing to prune.
+async function listOllamaModels(baseUrl: string | undefined): Promise<string[]> {
+  const res = await ollamaFetch(ollamaUrl(baseUrl, "/api/tags"));
+  if (!res.ok) throw await providerError("Ollama", res);
+  const data = (await res.json()) as { models?: { name: string }[] };
+  return (data.models ?? []).map((m) => m.name).sort();
+}
+
+// Credentials differ per provider — a key for the hosted ones, a base URL for
+// Ollama — so this takes an options bag rather than a bare apiKey.
 export async function listModels(
   provider: AiProvider,
-  apiKey: string,
+  creds: { apiKey?: string; baseUrl?: string },
 ): Promise<string[]> {
+  if (provider === "ollama") return listOllamaModels(creds.baseUrl);
   return provider === "openai"
-    ? listOpenaiModels(apiKey)
-    : listAnthropicModels(apiKey);
+    ? listOpenaiModels(creds.apiKey ?? "")
+    : listAnthropicModels(creds.apiKey ?? "");
 }
 
 export async function tailorResume(
   params: TailorParams,
 ): Promise<TailorResult> {
-  const { text, usage } =
-    params.provider === "openai"
-      ? await callOpenai(params)
-      : await callAnthropic(params);
+  const call =
+    params.provider === "ollama"
+      ? callOllama
+      : params.provider === "openai"
+        ? callOpenai
+        : callAnthropic;
+  const { text, usage } = await call(params);
   return { output: text, provider: params.provider, usage };
 }

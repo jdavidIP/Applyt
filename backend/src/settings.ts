@@ -39,11 +39,17 @@ const DEFAULT_MODEL_PRICING: ModelPricing = {
   'gpt-4o-mini': { inputPerMillion: 0.15, outputPerMillion: 0.6 },
 };
 
+// Ollama's own default listen address. Overridable in Settings, and by the
+// OLLAMA_BASE_URL env var (which is how docker-compose points the backend
+// container at the sibling `ollama` service by hostname).
+const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434';
+
 const DEFAULTS: Settings = {
   provider: 'anthropic',
   model: 'claude-sonnet-5',
   anthropicApiKey: '',
   openaiApiKey: '',
+  ollamaBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   baseResume: '',
   modelPricing: DEFAULT_MODEL_PRICING,
 };
@@ -57,6 +63,8 @@ export interface SettingsStore {
   getPublic(): PublicSettings;
   /** The API key for a provider, preferring an env var over the stored value. */
   resolveApiKey(provider: AiProvider): string | undefined;
+  /** The Ollama server base URL, preferring OLLAMA_BASE_URL over the stored value. */
+  resolveOllamaBaseUrl(): string;
 }
 
 export function createSettingsStore(path: string = resolveSettingsPath()): SettingsStore {
@@ -84,6 +92,9 @@ export function createSettingsStore(path: string = resolveSettingsPath()): Setti
       model: patch.model ?? current.model,
       anthropicApiKey: patch.anthropicApiKey ?? current.anthropicApiKey,
       openaiApiKey: patch.openaiApiKey ?? current.openaiApiKey,
+      // Unlike the keys, '' here isn't a meaningful "cleared" state — an empty
+      // base URL can't be fetched — so it falls back to the default instead.
+      ollamaBaseUrl: patch.ollamaBaseUrl?.trim() || current.ollamaBaseUrl,
       baseResume: patch.baseResume ?? current.baseResume,
       // A sent modelPricing replaces the whole table (the Settings UI always
       // submits the full set); absent leaves the existing table untouched.
@@ -101,7 +112,20 @@ export function createSettingsStore(path: string = resolveSettingsPath()): Setti
     if (provider === 'anthropic') {
       return process.env.ANTHROPIC_API_KEY?.trim() || stored.anthropicApiKey || undefined;
     }
-    return process.env.OPENAI_API_KEY?.trim() || stored.openaiApiKey || undefined;
+    if (provider === 'openai') {
+      return process.env.OPENAI_API_KEY?.trim() || stored.openaiApiKey || undefined;
+    }
+    // Ollama is local and unauthenticated — it has no key to resolve. Returned
+    // explicitly rather than falling through to the OpenAI branch, which would
+    // hand out the OpenAI key for an unrelated provider.
+    return undefined;
+  }
+
+  function resolveOllamaBaseUrl(): string {
+    // Same env-wins-over-stored precedence as resolveApiKey.
+    return (
+      process.env.OLLAMA_BASE_URL?.trim() || read().ollamaBaseUrl || DEFAULT_OLLAMA_BASE_URL
+    );
   }
 
   function getPublic(): PublicSettings {
@@ -112,9 +136,10 @@ export function createSettingsStore(path: string = resolveSettingsPath()): Setti
       baseResume: s.baseResume,
       hasAnthropicKey: Boolean(resolveApiKey('anthropic')),
       hasOpenaiKey: Boolean(resolveApiKey('openai')),
+      ollamaBaseUrl: resolveOllamaBaseUrl(),
       modelPricing: s.modelPricing,
     };
   }
 
-  return { read, update, getPublic, resolveApiKey };
+  return { read, update, getPublic, resolveApiKey, resolveOllamaBaseUrl };
 }

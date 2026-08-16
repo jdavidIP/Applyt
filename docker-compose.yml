@@ -3,6 +3,12 @@
 #
 # Dashboard -> http://localhost:5173  (nginx serves the SPA and proxies /api)
 # Backend   -> http://localhost:4317  (exposed for the browser extension in Phase 2)
+#
+# Local AI tailoring via Ollama is opt-in (issue #34) — it's a multi-GB
+# image+model download, so it must not land on every existing user's next
+# `docker compose up --build` just because they added the two-line
+# `ollama`/`ollama-pull` blocks below to their compose file. Run it with:
+#   docker compose --profile ollama up --build
 services:
   backend:
     build:
@@ -13,6 +19,10 @@ services:
       HOST: 0.0.0.0        # bind all interfaces so the container is reachable
       PORT: "4317"
       # DB_PATH defaults to /app/backend/data/applications.db (the volume below).
+      # Only reachable when the `ollama` profile is also running; otherwise
+      # provider=ollama tailoring fails with a plain connection error, the
+      # same class of failure as a missing ANTHROPIC_API_KEY/OPENAI_API_KEY.
+      OLLAMA_BASE_URL: http://ollama:11434
     volumes:
       - applyt-data:/app/backend/data
     ports:
@@ -40,5 +50,37 @@ services:
       - "5173:80"
     restart: unless-stopped
 
+  # Opt-in (see header comment above) — `backend` is not depends_on this, and
+  # must not block on it being healthy, since most requests won't use it.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # One-shot: pulls the two default models once the server is healthy, then
+  # exits. `ollama pull` hash-checks and no-ops fast if already present, so
+  # re-running this on every `up` is cheap, not a re-download.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "ollama pull llama3.2:latest && ollama pull llama3.2:1b"
+    restart: "no"
+
 volumes:
   applyt-data:
+  ollama-data:
