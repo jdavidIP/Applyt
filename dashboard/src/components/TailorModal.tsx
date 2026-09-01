@@ -10,6 +10,7 @@ import {
   IconStarFilled,
   IconSparkles,
   IconBulb,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { formatDate } from "../labels";
@@ -62,6 +63,13 @@ function MatchStars({ rating }: { rating: number }) {
     </div>
   );
 }
+
+// Tracks which applications have a tailor run outstanding, independent of any
+// single TailorModal instance's local state — closing and reopening the modal
+// (issue #37) unmounts/remounts the component, which would otherwise reset
+// `generating` to false and let a second run fire while the first is still
+// in flight on the server.
+const inFlightTailors = new Set<number>();
 
 interface Props {
   application: Application;
@@ -126,7 +134,9 @@ function formatCoverLetter(cl: CoverLetter): string {
 export function TailorModal({ application, onClose, onTailored }: Props) {
   const [versions, setVersions] = useState<ResumeVersion[]>([]);
   const [selected, setSelected] = useState<ResumeVersion | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState(() =>
+    inFlightTailors.has(application.id),
+  );
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [estimate, setEstimate] = useState<TailorEstimate | null>(null);
@@ -205,6 +215,13 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   }, [application.id, hasJobDescription]);
 
   async function handleGenerate() {
+    if (inFlightTailors.has(application.id)) {
+      setError(
+        "A tailor run for this job is already in progress — wait for it to finish before starting another.",
+      );
+      return;
+    }
+    inFlightTailors.add(application.id);
     setGenerating(true);
     setError(null);
     try {
@@ -227,6 +244,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to tailor resume.");
     } finally {
+      inFlightTailors.delete(application.id);
       setGenerating(false);
     }
   }
@@ -333,6 +351,9 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               disabled={generating || !hasJobDescription}
               className="bg-matcha-400 hover:bg-matcha-600 disabled:opacity-55 disabled:cursor-not-allowed text-white font-medium text-sm px-6 py-2.5 rounded-l-lg transition-colors flex items-center gap-2"
             >
+              {generating && (
+                <IconLoader2 size={16} className="animate-spin" />
+              )}
               {generating
                 ? "Generating…"
                 : versions.length
@@ -373,6 +394,14 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
         {estimate && (
           <p className="text-ink-soft text-[10px] italic">
             {estimateSummary(estimate)}
+          </p>
+        )}
+        {generating && (
+          <p className="text-matcha-800 text-[11px] flex items-center gap-1.5">
+            <IconLoader2 size={13} className="animate-spin" />
+            Tailoring in progress — this can take a while for local models
+            like Ollama. Feel free to keep this tab open; you don't need to
+            click again.
           </p>
         )}
       </div>
