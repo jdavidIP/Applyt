@@ -16,6 +16,11 @@ import { api } from "../api";
 import { formatDate } from "../labels";
 import { triggerBlobDownload } from "../download";
 import { parseTailoredResume } from "../tailoredResume";
+import {
+  isTailorRunning,
+  trackTailorRun,
+  getTailorRun,
+} from "../tailorRunTracker";
 import type {
   Application,
   ResumeVersion,
@@ -63,13 +68,6 @@ function MatchStars({ rating }: { rating: number }) {
     </div>
   );
 }
-
-// Tracks which applications have a tailor run outstanding, independent of any
-// single TailorModal instance's local state — closing and reopening the modal
-// (issue #37) unmounts/remounts the component, which would otherwise reset
-// `generating` to false and let a second run fire while the first is still
-// in flight on the server.
-const inFlightTailors = new Set<number>();
 
 interface Props {
   application: Application;
@@ -135,7 +133,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [versions, setVersions] = useState<ResumeVersion[]>([]);
   const [selected, setSelected] = useState<ResumeVersion | null>(null);
   const [generating, setGenerating] = useState(() =>
-    inFlightTailors.has(application.id),
+    isTailorRunning(application.id),
   );
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -214,24 +212,17 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     };
   }, [application.id, hasJobDescription]);
 
-  async function handleGenerate() {
-    if (inFlightTailors.has(application.id)) {
-      setError(
-        "A tailor run for this job is already in progress — wait for it to finish before starting another.",
-      );
-      return;
-    }
-    inFlightTailors.add(application.id);
-    setGenerating(true);
-    setError(null);
+  // Applies the outcome of a tailor run to this instance's own state. Called
+  // both by the instance that started the run and, via the effect below, by
+  // an instance that remounted (modal closed/reopened) while it was still
+  // running — so either one reflects the real outcome instead of getting
+  // stuck showing "Generating…" forever (issue #37).
+  async function settleRun(promise: Promise<ResumeVersion>) {
     try {
-      const version = await api.tailor(application.id, {
-        includeMatchRating,
-        includeSuggestions,
-        targetOnePage,
-        includeCoverLetter,
-      });
-      setVersions((prev) => [version, ...prev]);
+      const version = await promise;
+      setVersions((prev) =>
+        prev.some((v) => v.id === version.id) ? prev : [version, ...prev],
+      );
       setSelected(version);
       onTailored();
       // Refresh the estimate so a follow-up run in this session reflects the
@@ -244,9 +235,40 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to tailor resume.");
     } finally {
-      inFlightTailors.delete(application.id);
       setGenerating(false);
     }
+  }
+
+  // Rejoins an outstanding run for this application if the modal was closed
+  // and reopened while it was in flight, so this fresh instance still learns
+  // when it settles.
+  useEffect(() => {
+    const existing = getTailorRun(application.id) as
+      | Promise<ResumeVersion>
+      | undefined;
+    if (existing) void settleRun(existing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [application.id]);
+
+  async function handleGenerate() {
+    if (isTailorRunning(application.id)) {
+      setError(
+        "A tailor run for this job is already in progress — wait for it to finish before starting another.",
+      );
+      return;
+    }
+    setGenerating(true);
+    setError(null);
+    const promise = trackTailorRun(
+      application.id,
+      api.tailor(application.id, {
+        includeMatchRating,
+        includeSuggestions,
+        targetOnePage,
+        includeCoverLetter,
+      }),
+    );
+    await settleRun(promise);
   }
 
   // Renders the stored version on demand into the requested format (server
@@ -352,7 +374,11 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
               className="bg-matcha-400 hover:bg-matcha-600 disabled:opacity-55 disabled:cursor-not-allowed text-white font-medium text-sm px-6 py-2.5 rounded-l-lg transition-colors flex items-center gap-2"
             >
               {generating && (
-                <IconLoader2 size={16} className="animate-spin" />
+                <IconLoader2
+                  size={16}
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
               )}
               {generating
                 ? "Generating…"
@@ -397,8 +423,12 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
           </p>
         )}
         {generating && (
-          <p className="text-matcha-800 text-[11px] flex items-center gap-1.5">
-            <IconLoader2 size={13} className="animate-spin" />
+          <p
+            role="status"
+            aria-live="polite"
+            className="text-matcha-800 text-[11px] flex items-center gap-1.5"
+          >
+            <IconLoader2 size={13} className="animate-spin" aria-hidden="true" />
             Tailoring in progress — this can take a while for local models
             like Ollama. Feel free to keep this tab open; you don't need to
             click again.
