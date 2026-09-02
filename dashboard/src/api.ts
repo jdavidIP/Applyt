@@ -4,6 +4,8 @@ import type {
   Filters,
   Status,
   StatsResponse,
+  DailyStatsResponse,
+  DailyStatsWeeks,
   PublicSettings,
   SettingsInput,
   ResumeVersion,
@@ -90,6 +92,30 @@ export const api = {
   exportXlsxUrl: (): string => `${API_BASE}/applications/export.xlsx`,
 
   stats: (): Promise<StatsResponse> => request<StatsResponse>('/applications/stats'),
+
+  // Trend-detail modal: day-by-day breakdown for a `weeks`-wide window,
+  // `offset` windows back from the most recent one.
+  dailyStats: (weeks: DailyStatsWeeks, offset: number): Promise<DailyStatsResponse> =>
+    request<DailyStatsResponse>(`/applications/stats/daily?weeks=${weeks}&offset=${offset}`),
+
+  // Trend-detail modal's day-drilldown: every application logged on one
+  // calendar day. Uncapped (well past any realistic single-day count) since
+  // this is a flat list, not the paginated main table.
+  listByDate: async (date: string): Promise<Application[]> => {
+    const res = await request<{ items: Application[] }>(
+      `/applications?date=${encodeURIComponent(date)}&pageSize=100`,
+    );
+    return res.items;
+  },
+
+  // Trend-detail modal's weekly-view drilldown: every application logged in
+  // an inclusive date range (a calendar week).
+  listByDateRange: async (dateFrom: string, dateTo: string): Promise<Application[]> => {
+    const res = await request<{ items: Application[] }>(
+      `/applications?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}&pageSize=100`,
+    );
+    return res.items;
+  },
 
   markStale: (thresholdDays: number): Promise<{ updated: number }> =>
     request<{ updated: number }>('/applications/mark-stale', {

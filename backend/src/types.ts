@@ -106,6 +106,16 @@ export interface ListApplicationsQuery {
   platform?: Platform;
   status?: Status;
   search?: string;
+  // Exact date_applied match (YYYY-MM-DD) — the trend-detail modal's
+  // day-drilldown (CLAUDE.md §7 Phase 3 follow-up), not exposed in the main
+  // dashboard filters.
+  date?: string;
+  // Inclusive date_applied range (YYYY-MM-DD, both required together) — the
+  // trend-detail modal's weekly-view drilldown. Independent of `date`; a
+  // request could in principle send both, in which case both narrow the
+  // result (AND), though the UI never does this.
+  dateFrom?: string;
+  dateTo?: string;
   sort?: "date_applied" | "date_last_updated";
   order?: "asc" | "desc";
   page?: number;
@@ -136,6 +146,30 @@ export interface StatsResponse {
   totalApplications: number;
   perWeek: WeeklyCount[];
   responseRate: number | null; // null when there's no denominator (no non-pending applications yet)
+}
+
+// GET /applications/stats/daily — the trend-detail modal's day-by-day
+// breakdown. `weeks` selects how many weeks are visualized (4/8/12);
+// `offset` pages back in units of that many weeks (0 = the most recent
+// range, 1 = the range immediately before it, etc.), driving the modal's
+// prev/next navigation.
+export const DAILY_STATS_WEEK_OPTIONS = [4, 8, 12] as const;
+export type DailyStatsWeeks = (typeof DAILY_STATS_WEEK_OPTIONS)[number];
+
+export interface DailyStatsQuery {
+  weeks?: DailyStatsWeeks;
+  offset?: number;
+}
+
+export interface DailyCount {
+  date: string; // ISO date (YYYY-MM-DD)
+  count: number;
+}
+
+export interface DailyStatsResponse {
+  days: DailyCount[]; // oldest -> newest, zero-filled, weeks*7 entries
+  rangeStart: string; // ISO date
+  rangeEnd: string; // ISO date
 }
 
 // ---- Phase 4: AI resume tailoring ----

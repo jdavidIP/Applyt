@@ -1,4 +1,4 @@
-import type { Application, ResumeVersion, Status, Platform, ApplyMethod, WeeklyCount } from "./types.js";
+import type { Application, ResumeVersion, Status, Platform, ApplyMethod, WeeklyCount, DailyStatsResponse } from "./types.js";
 import { STATUSES, PLATFORMS } from "./types.js";
 import { parseTailoredResume } from "./tailoredResume.js";
 
@@ -78,6 +78,50 @@ export function computePerWeek(dateApplied: string[]): WeeklyCount[] {
     if (idx !== undefined) buckets[idx].count += 1;
   }
   return buckets;
+}
+
+// Day-by-day breakdown for the trend-detail modal's chart, over a fixed
+// `weeks`-week window ending `offsetWeeks * weeks * 7` days before the
+// current calendar week (offset 0 = the most recent window) — mirrors
+// computePerWeek's zero-filled bucketing and its use of mondayOf so both
+// widgets agree on where a week starts, just at daily instead of weekly
+// granularity, and pageable via offset instead of always ending "now".
+//
+// Weeks are calendar weeks (Monday-Sunday), not a rolling "last N days"
+// window: at offset 0 the window always ends on the Sunday of the *current*
+// week, so if today is e.g. a Monday, the rest of that week's (future) days
+// still render as zero-count bars rather than being cut off.
+export function computePerDay(
+  dateApplied: string[],
+  weeks: number,
+  offsetWeeks: number,
+): DailyStatsResponse {
+  const totalDays = weeks * 7;
+  const currentWeekMonday = mondayOf(new Date());
+  const rangeEndDate = new Date(currentWeekMonday);
+  rangeEndDate.setUTCDate(rangeEndDate.getUTCDate() + 6 - offsetWeeks * totalDays);
+  const rangeStartDate = new Date(rangeEndDate);
+  rangeStartDate.setUTCDate(rangeStartDate.getUTCDate() - (totalDays - 1));
+
+  const countsByDate = new Map<string, number>();
+  for (const iso of dateApplied) {
+    const day = iso.slice(0, 10);
+    countsByDate.set(day, (countsByDate.get(day) ?? 0) + 1);
+  }
+
+  const days = [];
+  const cursor = new Date(rangeStartDate);
+  for (let i = 0; i < totalDays; i++) {
+    const day = cursor.toISOString().slice(0, 10);
+    days.push({ date: day, count: countsByDate.get(day) ?? 0 });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return {
+    days,
+    rangeStart: rangeStartDate.toISOString().slice(0, 10),
+    rangeEnd: rangeEndDate.toISOString().slice(0, 10),
+  };
 }
 
 // Bucketed across the actual span of the exported data (earliest to most

@@ -1,4 +1,4 @@
-import { PLATFORMS, APPLY_METHODS, STATUSES, MODALITIES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS } from './types.js';
+import { PLATFORMS, APPLY_METHODS, STATUSES, MODALITIES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS, DAILY_STATS_WEEK_OPTIONS } from './types.js';
 
 // Fastify JSON schemas for request bodies/queries. Enum sets are sourced from
 // types.ts so they cannot drift from the domain unions (and, in turn, the SQLite schema).
@@ -82,10 +82,22 @@ export const listApplicationsQuerySchema = {
     platform: { type: 'string', enum: [...PLATFORMS] },
     status: { type: 'string', enum: [...STATUSES] },
     search: { type: 'string' },
+    date: { type: 'string', minLength: 1 },
+    dateFrom: { type: 'string', minLength: 1 },
+    dateTo: { type: 'string', minLength: 1 },
     sort: { type: 'string', enum: ['date_applied', 'date_last_updated'] },
     order: { type: 'string', enum: ['asc', 'desc'] },
     page: { type: 'integer', minimum: 1, default: 1 },
     pageSize: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+  },
+} as const;
+
+export const dailyStatsQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    weeks: { type: 'integer', enum: [...DAILY_STATS_WEEK_OPTIONS], default: 4 },
+    offset: { type: 'integer', minimum: 0, default: 0 },
   },
 } as const;
 
