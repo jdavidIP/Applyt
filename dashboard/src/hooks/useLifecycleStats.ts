@@ -75,5 +75,6 @@ export function useLifecycleStats(onApplicationsChanged: () => void) {
     busy,
     handleMarkStale,
     handleDeleteRejected,
+    refreshStats: loadStats,
   };
 }

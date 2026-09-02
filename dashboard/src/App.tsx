@@ -43,11 +43,14 @@ export default function App() {
   const [trendsOpen, setTrendsOpen] = useState(false);
   const { showToast } = useToast();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await api.list(filters);
+      setError(null);
       setApplications(res.items);
       setTotal(res.total);
       setPageSize(res.pageSize);
@@ -59,9 +62,11 @@ export default function App() {
         setFilters((f) => ({ ...f, page: res.page }));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load applications.');
+      // A background poll failing silently (e.g. a momentary network hiccup)
+      // shouldn't surface an error banner over an already-loaded table.
+      if (!silent) setError(err instanceof Error ? err.message : 'Failed to load applications.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [filters]);
 
@@ -77,7 +82,23 @@ export default function App() {
     busy: lifecycleBusy,
     handleMarkStale,
     handleDeleteRejected,
+    refreshStats,
   } = useLifecycleStats(() => void load());
+
+  // Extension-detected applications land straight in the DB behind our back
+  // (no dashboard-initiated fetch triggers a reload), so poll in the
+  // background to pick them up without the user having to refresh. No modal
+  // open only, so an in-progress edit/tailor form isn't reset from under the
+  // user by a background reload.
+  useEffect(() => {
+    const modalOpen = formOpen || tailoring !== null || settingsOpen || trendsOpen;
+    if (modalOpen) return;
+    const id = setInterval(() => {
+      void load(true);
+      void refreshStats();
+    }, 5000);
+    return () => clearInterval(id);
+  }, [load, refreshStats, formOpen, tailoring, settingsOpen, trendsOpen]);
 
   async function handleSubmit(input: ApplicationInput) {
     if (editing) {
