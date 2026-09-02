@@ -12,10 +12,13 @@ fit together, and [`SETUP.md`](./SETUP.md) for detailed setup (Docker or manual)
 > packaging all work today. Ongoing work from here is bug fixes and incremental
 > enhancements filed as GitHub issues, not new phases.
 
+![Dashboard](docs/screenshots/dashboard.jpg)
+![Application trends](docs/screenshots/trends.jpg)
+
 <!--
-  Screenshots/GIFs of the dashboard and extension popup go here. Not included yet —
-  add a few PNGs/GIFs under e.g. `docs/screenshots/` and embed them with standard
-  Markdown image syntax once captured.
+  Data shown above is fictional, seeded for these screenshots — not a real user's
+  applications. Extension popup screenshot/GIF not included yet — add one under
+  `docs/screenshots/` and embed it here once captured.
 -->
 
 ## Quick start
@@ -55,7 +58,9 @@ this is deliberately self-hosted rather than a hosted service.
   out or submits anything on your behalf (see `CLAUDE.md` §2/§6). External-redirect
   applies (sent to the employer's own site) are logged as `pending_confirmation` for
   you to confirm, since neither the platform nor the extension can see whether you
-  actually finished the form there.
+  actually finished the form there. The dashboard picks up extension-captured
+  applications and refreshed stats automatically within a few seconds — no manual
+  reload needed.
 - **CSV export** — the permanent, zero-setup export path, one click.
 - **Lifecycle management** — bulk-mark stale applications after N days of inactivity,
   bulk-delete by status, and basic stats (applications per week, response rate).
