@@ -86,6 +86,21 @@ export interface StatsResponse {
   responseRate: number | null;
 }
 
+// Mirrors backend/src/types.ts — GET /applications/stats/daily.
+export const DAILY_STATS_WEEK_OPTIONS = [4, 8, 12] as const;
+export type DailyStatsWeeks = (typeof DAILY_STATS_WEEK_OPTIONS)[number];
+
+export interface DailyCount {
+  date: string;
+  count: number;
+}
+
+export interface DailyStatsResponse {
+  days: DailyCount[];
+  rangeStart: string;
+  rangeEnd: string;
+}
+
 // ---- Phase 4: AI resume tailoring ----
 
 export const AI_PROVIDERS = ['anthropic', 'openai', 'ollama'] as const;

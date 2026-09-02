@@ -661,3 +661,76 @@ test('stats is not shadowed by the :id route', async () => {
   const res = await app.inject({ method: 'GET', url: '/applications/stats' });
   assert.equal(res.statusCode, 200);
 });
+
+test('GET /applications/stats/daily defaults to a 4-week, zero-filled window ending today', async () => {
+  await createSample({ platform_job_id: 'daily1', date_applied: new Date().toISOString() });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/stats/daily' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { days: { date: string; count: number }[]; rangeStart: string; rangeEnd: string };
+  assert.equal(body.days.length, 28);
+  assert.equal(body.rangeEnd, new Date().toISOString().slice(0, 10));
+  const total = body.days.reduce((sum, d) => sum + d.count, 0);
+  assert.equal(total, 1);
+  assert.equal(body.days[body.days.length - 1].count, 1); // lands on today, the last day in the window
+});
+
+test('GET /applications/stats/daily buckets a full-timestamp date_applied by its calendar day', async () => {
+  const tenDaysAgo = new Date();
+  tenDaysAgo.setUTCDate(tenDaysAgo.getUTCDate() - 10);
+  const expectedDay = tenDaysAgo.toISOString().slice(0, 10);
+  await createSample({ platform_job_id: 'daily2', date_applied: `${expectedDay}T09:30:00.000Z` });
+
+  const res = await app.inject({ method: 'GET', url: '/applications/stats/daily' }); // default weeks=4
+  const body = res.json() as { days: { date: string; count: number }[] };
+  const day = body.days.find((d) => d.date === expectedDay);
+  assert.ok(day, `expected a bucket for ${expectedDay}`);
+  assert.equal(day?.count, 1);
+});
+
+test('GET /applications/stats/daily honors weeks and offset for pagination', async () => {
+  const res4 = await app.inject({ method: 'GET', url: '/applications/stats/daily?weeks=4' });
+  assert.equal((res4.json() as { days: unknown[] }).days.length, 28);
+
+  const res8 = await app.inject({ method: 'GET', url: '/applications/stats/daily?weeks=8' });
+  assert.equal((res8.json() as { days: unknown[] }).days.length, 56);
+
+  const offset0 = (await app.inject({ method: 'GET', url: '/applications/stats/daily?weeks=4&offset=0' })).json() as {
+    rangeStart: string;
+  };
+  const offset1 = (await app.inject({ method: 'GET', url: '/applications/stats/daily?weeks=4&offset=1' })).json() as {
+    rangeEnd: string;
+  };
+  // offset=1's range should end exactly one day before offset=0's range starts.
+  const dayBeforeStart = new Date(offset0.rangeStart);
+  dayBeforeStart.setUTCDate(dayBeforeStart.getUTCDate() - 1);
+  assert.equal(offset1.rangeEnd, dayBeforeStart.toISOString().slice(0, 10));
+});
+
+test('GET /applications/stats/daily rejects an invalid weeks value', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/stats/daily?weeks=6' });
+  assert.equal(res.statusCode, 400);
+});
+
+test('GET /applications?dateFrom=&dateTo= filters to an inclusive calendar-day range', async () => {
+  await createSample({ platform_job_id: 'range1', date_applied: '2026-06-01' });
+  await createSample({ platform_job_id: 'range2', date_applied: '2026-06-03T12:00:00.000Z' });
+  await createSample({ platform_job_id: 'range3', date_applied: '2026-06-07' }); // boundary, included
+  await createSample({ platform_job_id: 'range4', date_applied: '2026-06-08' }); // just past boundary, excluded
+  await createSample({ platform_job_id: 'range5', date_applied: '2026-05-31' }); // just before, excluded
+
+  const res = await app.inject({ method: 'GET', url: '/applications?dateFrom=2026-06-01&dateTo=2026-06-07' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 3);
+});
+
+test('GET /applications?date= filters to applications on that calendar day regardless of stored time-of-day', async () => {
+  await createSample({ platform_job_id: 'dateq1', date_applied: '2026-03-04T18:00:00.000Z' });
+  await createSample({ platform_job_id: 'dateq2', date_applied: '2026-03-04' });
+  await createSample({ platform_job_id: 'dateq3', date_applied: '2026-03-05T00:00:00.000Z' });
+
+  const res = await app.inject({ method: 'GET', url: '/applications?date=2026-03-04' });
+  const body = res.json() as { items: Application[]; total: number };
+  assert.equal(body.total, 2);
+  assert.ok(body.items.every((a) => a.date_applied.startsWith('2026-03-04')));
+});

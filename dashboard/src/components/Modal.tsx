@@ -4,6 +4,9 @@ import { IconX } from '@tabler/icons-react';
 interface Props {
   title: ReactNode;
   wide?: boolean;
+  // Wider still than `wide` — for content that genuinely needs the room
+  // (e.g. TrendModal's chart + side panel), not a default to reach for.
+  xwide?: boolean;
   onClose: () => void;
   children: ReactNode;
   footer: ReactNode;
@@ -17,15 +20,16 @@ interface Props {
 // (same pattern the pre-redesign .modal-actions CSS used) so a submit button
 // in the footer stays a normal descendant of the <form>. Used by AddEditForm,
 // SettingsModal, and TailorModal so the three can't visually drift apart.
-export function Modal({ title, wide, onClose, children, footer, onSubmit }: Props) {
+export function Modal({ title, wide, xwide, onClose, children, footer, onSubmit }: Props) {
   const Scroll = onSubmit ? 'form' : 'div';
+  const maxWidth = xwide ? 'max-w-[1040px]' : wide ? 'max-w-[780px]' : 'max-w-[620px]';
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
-        className={`bg-white w-full ${wide ? 'max-w-[780px]' : 'max-w-[620px]'} max-h-[90vh] rounded-2xl border-[0.5px] border-matcha-200 flex flex-col overflow-hidden`}
+        className={`bg-white w-full ${maxWidth} max-h-[90vh] rounded-2xl border-[0.5px] border-matcha-200 flex flex-col overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-5 border-b border-matcha-200 flex justify-between items-center shrink-0">

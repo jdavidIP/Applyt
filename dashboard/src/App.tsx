@@ -11,6 +11,7 @@ import { MaintenancePanel } from './components/MaintenancePanel';
 import { Pagination } from './components/Pagination';
 import { SettingsModal } from './components/SettingsModal';
 import { TailorModal } from './components/TailorModal';
+import { TrendModal } from './components/TrendModal';
 import { useToast } from './components/Toast';
 import { useLifecycleStats } from './hooks/useLifecycleStats';
 
@@ -34,6 +35,7 @@ export default function App() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tailoring, setTailoring] = useState<Application | null>(null);
+  const [trendsOpen, setTrendsOpen] = useState(false);
   const { showToast } = useToast();
 
   const load = useCallback(async () => {
@@ -155,7 +157,7 @@ export default function App() {
 
       <main className="flex-1 px-10 py-10">
         <div className="card p-4 mb-6 flex items-center justify-between">
-          <StatsBar stats={stats} />
+          <StatsBar stats={stats} onOpenTrends={() => setTrendsOpen(true)} />
           <div className="flex gap-3">
             <button
               type="button"
@@ -233,6 +235,8 @@ export default function App() {
             onTailored={() => void load()}
           />
         )}
+
+        {trendsOpen && <TrendModal onClose={() => setTrendsOpen(false)} />}
       </main>
     </div>
   );

@@ -8,6 +8,7 @@ import type {
   MarkStaleBody,
   BulkDeleteQuery,
   StatsResponse,
+  DailyStatsQuery,
   ResumeVersion,
   TailorEstimate,
   ResumeDownloadFormat,
@@ -17,6 +18,7 @@ import {
   createApplicationSchema,
   updateApplicationSchema,
   listApplicationsQuerySchema,
+  dailyStatsQuerySchema,
   idParamSchema,
   markStaleSchema,
   bulkDeleteQuerySchema,
@@ -35,6 +37,7 @@ import {
   resolveVersionByAppId,
   RESPONSE_STATUSES,
   computePerWeek,
+  computePerDay,
   type AppVersionInfo,
 } from "../reportData.js";
 import { buildApplicationsWorkbook } from "../xlsxExport.js";
@@ -88,6 +91,9 @@ export default async function applicationsRoutes(
         platform,
         status,
         search,
+        date,
+        dateFrom,
+        dateTo,
         sort,
         order,
         page = 1,
@@ -102,6 +108,22 @@ export default async function applicationsRoutes(
       if (status) {
         where.push("status = @status");
         params.status = status;
+      }
+      if (date) {
+        // date_applied is stored as either a bare date (YYYY-MM-DD, when the
+        // client supplied one) or a full ISO timestamp (server default when
+        // it didn't) — substr matches both against the bare date the
+        // trend-detail modal's day-drilldown sends.
+        where.push("substr(date_applied, 1, 10) = @date");
+        params.date = date;
+      }
+      if (dateFrom && dateTo) {
+        // Inclusive calendar-day range — the trend-detail modal's weekly view
+        // drilldown (a week's worth of days at once). Same substr rationale
+        // as `date` above.
+        where.push("substr(date_applied, 1, 10) BETWEEN @dateFrom AND @dateTo");
+        params.dateFrom = dateFrom;
+        params.dateTo = dateTo;
       }
       if (search?.trim()) {
         // Strip spaces/hyphens from both sides so "Full Stack", "Full-Stack",
@@ -234,6 +256,26 @@ export default async function applicationsRoutes(
     };
     return stats;
   });
+
+  // GET /applications/stats/daily — day-by-day breakdown for the trend-detail
+  // modal's chart. weeks selects the window size (4/8/12), offset pages back
+  // in units of that window. Declared before ':id' for the same reason as
+  // 'stats' above.
+  fastify.get<{ Querystring: DailyStatsQuery }>(
+    "/applications/stats/daily",
+    { schema: { querystring: dailyStatsQuerySchema } },
+    async (request) => {
+      const { weeks = 4, offset = 0 } = request.query;
+      const rows = db
+        .prepare("SELECT date_applied FROM applications")
+        .all() as Pick<Application, "date_applied">[];
+      return computePerDay(
+        rows.map((r) => r.date_applied),
+        weeks,
+        offset,
+      );
+    },
+  );
 
   // POST /applications/mark-stale — bulk-transition long-untouched 'applied'
   // rows to 'stale' (CLAUDE.md §7 Phase 3: user-configurable threshold).

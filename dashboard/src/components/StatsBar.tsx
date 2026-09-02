@@ -2,12 +2,14 @@ import type { StatsResponse } from '../types';
 
 interface Props {
   stats: StatsResponse | null;
+  onOpenTrends: () => void;
 }
 
 // Approved sidebar-redesign draft: the 3 lifecycle stats render inline in a
 // single top-bar row (Total / Response / Trend) instead of 3 separate cards,
-// sharing one card with the header action buttons — see App.tsx.
-export function StatsBar({ stats }: Props) {
+// sharing one card with the header action buttons — see App.tsx. Trend opens
+// TrendModal, the approved "Split" detail-drilldown draft.
+export function StatsBar({ stats, onOpenTrends }: Props) {
   const maxWeekCount = stats ? Math.max(1, ...stats.perWeek.map((w) => w.count)) : 1;
 
   // perWeek is ordered oldest -> newest (see backend/src/routes/applications.ts
@@ -45,7 +47,12 @@ export function StatsBar({ stats }: Props) {
         </span>
       </div>
       {stats && (
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenTrends}
+          className="flex items-center gap-3 hover:opacity-75 transition-opacity"
+          title="View detailed trends"
+        >
           <span className="stat-label">Trend:</span>
           <div className="flex items-end gap-1 h-6">
             {stats.perWeek.map((w) => (
@@ -58,7 +65,7 @@ export function StatsBar({ stats }: Props) {
             ))}
           </div>
           {trend && <span className={`text-[11px] font-medium ${trend.className}`}>{trend.text}</span>}
-        </div>
+        </button>
       )}
     </div>
   );
