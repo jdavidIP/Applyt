@@ -44,10 +44,13 @@ export default function App() {
   const { showToast } = useToast();
 
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await api.list(filters);
+      setError(null);
       setApplications(res.items);
       setTotal(res.total);
       setPageSize(res.pageSize);
