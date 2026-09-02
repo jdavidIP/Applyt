@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFParse } from 'pdf-parse';
-import { renderPdf } from '../src/resumeRender.ts';
-import type { StructuredResume } from '../src/resumeSchema.ts';
+import { renderPdf } from '../src/resume/resumeRender.ts';
+import type { StructuredResume } from '../src/types/resumeSchema.ts';
 
 // Regression coverage for Issue #23: titleDateRow drew its left (title/company)
 // and right (date) halves as two separate pdfkit .text() calls sharing one

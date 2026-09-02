@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import multipart from '@fastify/multipart';
-import type { AiProvider, UpdateSettingsBody } from '../types.js';
-import { AI_PROVIDERS } from '../types.js';
+import type { AiProvider, UpdateSettingsBody } from '../types/index.js';
+import { AI_PROVIDERS } from '../types/index.js';
 import { updateSettingsSchema } from '../validation.js';
-import type { SettingsStore } from '../settings.js';
+import type { SettingsStore } from '../storage/settings.js';
 import { listModels } from '../ai.js';
 import { KNOWN_MODEL_PRICING, KNOWN_PRICING_AS_OF } from '../knownPricing.js';
-import { extractResumeText } from '../resumeExtract.js';
+import { extractResumeText } from '../resume/resumeExtract.js';
 
 interface RoutesOptions extends FastifyPluginOptions {
   settings: SettingsStore;

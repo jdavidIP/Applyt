@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { Application, Status } from "./types.js";
+import type { Application, Status } from "../types/index.js";
 import {
   STATUS_LABELS,
   PLATFORM_LABELS,

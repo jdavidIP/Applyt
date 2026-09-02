@@ -1,5 +1,5 @@
 import { buildApp } from './app.js';
-import { createDb } from './db.js';
+import { createDb } from './storage/db.js';
 
 // Default port 4317 (CLAUDE.md §4/§8); overridable via PORT.
 const PORT = Number(process.env.PORT ?? 4317);

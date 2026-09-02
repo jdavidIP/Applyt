@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import type Database from 'better-sqlite3';
 import applicationsRoutes from './routes/applications.js';
 import settingsRoutes from './routes/settings.js';
-import { createSettingsStore, type SettingsStore } from './settings.js';
+import { createSettingsStore, type SettingsStore } from './storage/settings.js';
 
 // Dashboard dev origin(s). Overridable via CORS_ORIGIN (comma-separated).
 // Since this is a local single-user tool, we scope CORS to the dashboard's localhost origin

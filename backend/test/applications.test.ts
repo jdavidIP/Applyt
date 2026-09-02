@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
 import ExcelJS from 'exceljs';
 import { buildApp } from '../src/app.ts';
-import { createDb } from '../src/db.ts';
-import type { Application } from '../src/types.ts';
+import { createDb } from '../src/storage/db.ts';
+import type { Application } from '../src/types/index.ts';
 
 let app: FastifyInstance;
 const db = createDb(':memory:');

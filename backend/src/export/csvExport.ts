@@ -1,4 +1,4 @@
-import type { Application } from "./types.js";
+import type { Application } from "../types/index.js";
 import {
   STATUS_LABELS,
   PLATFORM_LABELS,

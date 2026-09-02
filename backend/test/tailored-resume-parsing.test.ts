@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTailoredResume, flattenStructuredResume, parseTailorRejection } from '../src/tailoredResume.ts';
+import { parseTailoredResume, flattenStructuredResume, parseTailorRejection } from '../src/resume/tailoredResume.ts';
 
 const MINIMAL_ENVELOPE = {
   resume: {

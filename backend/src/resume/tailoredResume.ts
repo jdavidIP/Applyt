@@ -1,5 +1,5 @@
-import type { TailoredSections } from './types.js';
-import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from './resumeSchema.js';
+import type { TailoredSections } from '../types/index.js';
+import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from '../types/resumeSchema.js';
 
 // The AI (ai.ts) is prompted to return a single JSON object (a
 // TailorResponseEnvelope) containing the tailored resume as structured
