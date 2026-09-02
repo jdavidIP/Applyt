@@ -1,4 +1,4 @@
-import type { Status, ApplyMethod, Platform, Modality } from './types';
+import type { Status, ApplyMethod, Platform, Modality } from '../types';
 
 export const STATUS_LABELS: Record<Status, string> = {
   applied: 'Applied',

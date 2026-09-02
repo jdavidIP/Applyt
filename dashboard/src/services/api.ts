@@ -17,8 +17,8 @@ import type {
   ResumeDownloadFormat,
   AiProvider,
   PaginatedApplications,
-} from './types';
-import { PAGE_SIZE } from './types';
+} from '../types';
+import { PAGE_SIZE } from '../types';
 
 // Base URL for the local backend. In dev, defaults to '/api' which Vite proxies
 // to the backend (see vite.config.ts). Override with VITE_API_BASE if needed.

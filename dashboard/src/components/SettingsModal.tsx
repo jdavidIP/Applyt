@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { IconRefresh, IconCurrencyDollar, IconTrash, IconAlertTriangle, IconEye, IconEyeOff } from '@tabler/icons-react';
-import { api } from '../api';
+import { api } from '../services/api';
 import { AI_PROVIDERS, type AiProvider, type ModelPricing, type SettingsInput } from '../types';
-import { checkResumeCompleteness, type MissingField } from '../resumeCompleteness';
+import { checkResumeCompleteness, type MissingField } from '../lib/resumeCompleteness';
 import { Modal } from './Modal';
 import { useToast } from './Toast';
 

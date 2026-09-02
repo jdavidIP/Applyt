@@ -1,6 +1,6 @@
 import { IconSparkles, IconEdit, IconTrash } from '@tabler/icons-react';
 import type { Application, Status } from '../types';
-import { PLATFORM_LABELS, APPLY_METHOD_LABELS, MODALITY_LABELS, formatDate } from '../labels';
+import { PLATFORM_LABELS, APPLY_METHOD_LABELS, MODALITY_LABELS, formatDate } from '../lib/labels';
 import { StatusDropdown } from './StatusDropdown';
 
 interface Props {

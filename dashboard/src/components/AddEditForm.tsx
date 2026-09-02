@@ -7,7 +7,7 @@ import {
   type Application,
   type ApplicationInput,
 } from '../types';
-import { PLATFORM_LABELS, APPLY_METHOD_LABELS, STATUS_LABELS, MODALITY_LABELS } from '../labels';
+import { PLATFORM_LABELS, APPLY_METHOD_LABELS, STATUS_LABELS, MODALITY_LABELS } from '../lib/labels';
 import { Modal } from './Modal';
 
 interface Props {

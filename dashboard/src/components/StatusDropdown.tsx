@@ -1,5 +1,5 @@
 import { STATUSES, type Status } from '../types';
-import { STATUS_LABELS } from '../labels';
+import { STATUS_LABELS } from '../lib/labels';
 
 interface Props {
   value: Status;

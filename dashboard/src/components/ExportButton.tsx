@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { IconFileSpreadsheet } from '@tabler/icons-react';
-import { api } from '../api';
+import { api } from '../services/api';
 
 // Plain anchors to the backend export endpoints; the Content-Disposition
 // header makes the browser download them. CSV stays the zero-setup default
