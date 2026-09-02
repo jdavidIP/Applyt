@@ -8,11 +8,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Default DB location: backend/data/applications.db (gitignored).
 // Overridable via DB_PATH env var (e.g. ':memory:' for tests).
-function resolveDbPath(): string {
+export function resolveDbPath(): string {
   const envPath = process.env.DB_PATH;
   if (envPath && envPath.trim() !== "") return envPath;
-  // src/ -> ../data  (in dev) ; dist/ -> ../data (in build). Both land at backend/data.
-  return resolve(__dirname, "..", "data", "applications.db");
+  // src/storage/ -> ../../data (in dev) ; dist/storage/ -> ../../data (in build). Both land at backend/data.
+  return resolve(__dirname, "..", "..", "data", "applications.db");
 }
 
 export function createDb(dbPath: string = resolveDbPath()): Database.Database {

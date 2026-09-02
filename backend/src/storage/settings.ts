@@ -16,10 +16,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Holds the user's own AI API key(s) and base resume in plaintext — acceptable
 // because this is a local, single-user tool and the file never leaves the
 // machine (CLAUDE.md §3). Overridable via SETTINGS_PATH (used by tests).
-function resolveSettingsPath(): string {
+export function resolveSettingsPath(): string {
   const envPath = process.env.SETTINGS_PATH;
   if (envPath && envPath.trim() !== '') return envPath;
-  return resolve(__dirname, '..', 'data', 'settings.json');
+  return resolve(__dirname, '..', '..', 'data', 'settings.json');
 }
 
 // Seed pricing (USD per MILLION tokens, input/output) for common models, so the
