@@ -70,19 +70,25 @@ without an explicit decision to do so; it undoes the reasoning above.
   by a local JSON file (`backend/data/settings.json`, gitignored) rather than the
   database, since it holds secrets and is conceptually per-machine config, not
   application data.
-- `src/reportData.ts` — summary/report math (per-week counts, response rate,
-  formula-injection sanitization) shared between the CSV and XLSX export paths
-  so both report formats always agree on the same numbers.
+- `src/export/reportData.ts` — summary/report math (per-week counts, response
+  rate, formula-injection sanitization) shared between `src/export/csvExport.ts`
+  and `src/export/xlsxExport.ts` so both report formats always agree on the
+  same numbers.
 - `src/ai.ts` — the one place that makes an outbound network call: direct
   `fetch` requests to the Anthropic or OpenAI Messages API using the user's own
   key, or to a local/LAN Ollama server's native API (no key) — no SDK dependency
   for any of the three.
-- `src/resumeRender.ts` / `src/resumeSchema.ts` — turns a tailored resume
-  (structured JSON: contact, summary, experience, projects, education, skills)
-  into a single ATS-approved PDF/DOCX template. `src/tailoredResume.ts` parses
-  the model's output and transparently falls back to older flat-text formats for
-  `resume_versions` rows written before the structured format existed — no data
-  migration needed.
+- `src/resume/resumeRender.ts` / `src/types/resumeSchema.ts` — turns a tailored
+  resume (structured JSON: contact, summary, experience, projects, education,
+  skills) into a single ATS-approved PDF/DOCX template. `src/resume/tailoredResume.ts`
+  parses the model's output and transparently falls back to older flat-text
+  formats for `resume_versions` rows written before the structured format
+  existed — no data migration needed.
+- `src/storage/` — `db.ts` (SQLite connection + migrations) and `schema.ts`
+  (the DDL) for the database; `settings.ts` for the JSON-file-backed AI
+  provider/key/base-resume config described above. `src/types/` holds the
+  domain types (`index.ts`) and the resume/cover-letter schema
+  (`resumeSchema.ts`) shared across the backend.
 
 ### Data model
 

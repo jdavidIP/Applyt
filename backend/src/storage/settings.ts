@@ -7,8 +7,8 @@ import type {
   PublicSettings,
   Settings,
   UpdateSettingsBody,
-} from './types.js';
-import { KNOWN_MODEL_PRICING } from './knownPricing.js';
+} from '../types/index.js';
+import { KNOWN_MODEL_PRICING } from '../knownPricing.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

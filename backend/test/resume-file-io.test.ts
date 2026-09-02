@@ -7,10 +7,10 @@ import type { FastifyInstance } from 'fastify';
 import PDFDocument from 'pdfkit';
 import { Document as DocxDocument, Packer, Paragraph } from 'docx';
 import { buildApp } from '../src/app.ts';
-import { createDb } from '../src/db.ts';
-import { createSettingsStore } from '../src/settings.ts';
-import { parseTailoredResume } from '../src/tailoredResume.ts';
-import type { Application, ResumeVersion } from '../src/types.ts';
+import { createDb } from '../src/storage/db.ts';
+import { createSettingsStore } from '../src/storage/settings.ts';
+import { parseTailoredResume } from '../src/resume/tailoredResume.ts';
+import type { Application, ResumeVersion } from '../src/types/index.ts';
 
 const db = createDb(':memory:');
 const settingsPath = join(tmpdir(), `applyt-test-settings-${process.pid}-resume.json`);

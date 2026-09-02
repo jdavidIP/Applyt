@@ -12,22 +12,22 @@ import {
   IconBulb,
   IconLoader2,
 } from "@tabler/icons-react";
-import { api } from "../api";
-import { formatDate } from "../labels";
-import { triggerBlobDownload } from "../download";
-import { parseTailoredResume } from "../tailoredResume";
+import { api } from "../services/api";
+import { formatDate } from "../lib/labels";
+import { triggerBlobDownload } from "../lib/download";
+import { parseTailoredResume } from "../lib/tailoredResume";
 import {
   isTailorRunning,
   trackTailorRun,
   getTailorRun,
-} from "../tailorRunTracker";
+} from "../lib/tailorRunTracker";
 import type {
   Application,
   ResumeVersion,
   TailorEstimate,
   ResumeDownloadFormat,
 } from "../types";
-import type { CoverLetter } from "../resumeSchema";
+import type { CoverLetter } from "../types/resumeSchema";
 import { Modal } from "./Modal";
 
 // Strips characters that aren't filesystem-safe on Windows/macOS/Linux,

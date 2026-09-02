@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { AlignmentType, BorderStyle, Document, Packer, Paragraph, TabStopType, TextRun } from 'docx';
-import type { StructuredResume } from './resumeSchema.js';
+import type { StructuredResume } from '../types/resumeSchema.js';
 
 // Turns a tailored resume into a downloadable PDF or DOCX. Only the resume
 // section reaches here; the match rating and suggestions are shown in the

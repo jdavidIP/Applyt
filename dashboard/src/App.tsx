@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { IconCircleCheck, IconSettings, IconPlus } from '@tabler/icons-react';
-import { api } from './api';
+import { api } from './services/api';
 import type { Application, ApplicationInput, Filters, Status } from './types';
 import { ApplicationsTable } from './components/ApplicationsTable';
 import { AddEditForm } from './components/AddEditForm';

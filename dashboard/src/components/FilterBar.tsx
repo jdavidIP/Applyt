@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PLATFORMS, STATUSES, type Filters } from '../types';
-import { PLATFORM_LABELS, STATUS_LABELS } from '../labels';
+import { PLATFORM_LABELS, STATUS_LABELS } from '../lib/labels';
 
 interface Props {
   filters: Filters;

@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
-import { createDb } from '../src/db.ts';
-import { createSettingsStore } from '../src/settings.ts';
-import type { Application, PublicSettings, ResumeVersion } from '../src/types.ts';
+import { createDb } from '../src/storage/db.ts';
+import { createSettingsStore } from '../src/storage/settings.ts';
+import type { Application, PublicSettings, ResumeVersion } from '../src/types/index.ts';
 
 const db = createDb(':memory:');
 const settingsPath = join(tmpdir(), `applyt-test-settings-${process.pid}.json`);

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { IconChevronLeft, IconChevronRight, IconChartBar } from '@tabler/icons-react';
-import { api } from '../api';
-import { STATUS_LABELS } from '../labels';
+import { api } from '../services/api';
+import { STATUS_LABELS } from '../lib/labels';
 import { DAILY_STATS_WEEK_OPTIONS } from '../types';
 import type { Application, DailyStatsResponse, DailyStatsWeeks } from '../types';
-import { formatShortDate, formatRangeLabel, formatDayHeading, formatWeekRangeHeading } from '../trendFormat';
+import { formatShortDate, formatRangeLabel, formatDayHeading, formatWeekRangeHeading } from '../lib/trendFormat';
 import { Modal } from './Modal';
 
 interface Props {

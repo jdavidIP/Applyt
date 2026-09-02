@@ -13,7 +13,7 @@ import type {
   TailorEstimate,
   ResumeDownloadFormat,
   TailorRequestBody,
-} from "../types.js";
+} from "../types/index.js";
 import {
   createApplicationSchema,
   updateApplicationSchema,
@@ -25,13 +25,13 @@ import {
   resumeVersionParamSchema,
   resumeDownloadQuerySchema,
 } from "../validation.js";
-import type { SettingsStore } from "../settings.js";
+import type { SettingsStore } from "../storage/settings.js";
 import { tailorResume } from "../ai.js";
-import { renderPdf, renderDocx } from "../resumeRender.js";
+import { renderPdf, renderDocx } from "../resume/resumeRender.js";
 import {
   parseTailoredResume,
   parseTailorRejection,
-} from "../tailoredResume.js";
+} from "../resume/tailoredResume.js";
 import {
   computeReportSummary,
   resolveVersionByAppId,
@@ -39,9 +39,9 @@ import {
   computePerWeek,
   computePerDay,
   type AppVersionInfo,
-} from "../reportData.js";
-import { buildApplicationsWorkbook } from "../xlsxExport.js";
-import { buildApplicationsReport } from "../csvExport.js";
+} from "../export/reportData.js";
+import { buildApplicationsWorkbook } from "../export/xlsxExport.js";
+import { buildApplicationsReport } from "../export/csvExport.js";
 import {
   normalizeForSearch,
   normalizeJobDescription,

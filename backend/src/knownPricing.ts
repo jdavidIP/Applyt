@@ -1,4 +1,4 @@
-import type { ModelPricing } from './types.js';
+import type { ModelPricing } from './types/index.js';
 
 // Curated, manually-maintained snapshot of published list prices (USD per
 // MILLION tokens). Neither Anthropic nor OpenAI expose a pricing API, so this

@@ -1,5 +1,5 @@
-import type { TailoredSections } from './types';
-import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from './resumeSchema';
+import type { TailoredSections } from '../types';
+import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from '../types/resumeSchema';
 
 // Mirrors backend/src/tailoredResume.ts. Kept in sync manually (the project has
 // no shared package). The AI is prompted to emit a single JSON object (see

@@ -1,6 +1,6 @@
-import type { Application, ResumeVersion, Status, Platform, ApplyMethod, WeeklyCount, DailyStatsResponse } from "./types.js";
-import { STATUSES, PLATFORMS } from "./types.js";
-import { parseTailoredResume } from "./tailoredResume.js";
+import type { Application, ResumeVersion, Status, Platform, ApplyMethod, WeeklyCount, DailyStatsResponse } from "../types/index.js";
+import { STATUSES, PLATFORMS } from "../types/index.js";
+import { parseTailoredResume } from "../resume/tailoredResume.js";
 
 // Shared between the CSV (Issue #16) and XLSX (Issue #16 follow-up) exports so
 // both report formats present identical numbers derived from the same rows.

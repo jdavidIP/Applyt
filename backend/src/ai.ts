@@ -1,4 +1,4 @@
-import type { AiProvider, TokenUsage } from "./types.js";
+import type { AiProvider, TokenUsage } from "./types/index.js";
 
 // AI resume tailoring (CLAUDE.md §7 Phase 4). This is the ONLY place the whole
 // project makes an outbound network call: the backend proxies a single request
