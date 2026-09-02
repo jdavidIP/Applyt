@@ -51,8 +51,9 @@ this is deliberately self-hosted rather than a hosted service.
 ## What works today
 
 - **Manual tracking** — add / edit / delete job applications by hand in a local web
-  dashboard; filter by platform and status; sort by date applied or last updated;
-  change status inline (applied → interviewing → offer, etc.).
+  dashboard; search by company/title, filter by platform and status, and track
+  location/modality (remote/hybrid/on-site) per application; sort by date applied
+  or last updated; change status inline (applied → interviewing → offer, etc.).
 - **Auto-capture** — a browser extension detects applications you submit on Indeed,
   LinkedIn, and Glassdoor as you apply, and logs them automatically. It never fills
   out or submits anything on your behalf (see `CLAUDE.md` §2/§6). External-redirect
@@ -61,7 +62,7 @@ this is deliberately self-hosted rather than a hosted service.
   actually finished the form there. The dashboard picks up extension-captured
   applications and refreshed stats automatically within a few seconds — no manual
   reload needed.
-- **CSV export** — the permanent, zero-setup export path, one click.
+- **CSV/Excel export** — the permanent, zero-setup export path, one click.
 - **Lifecycle management** — bulk-mark stale applications after N days of inactivity,
   bulk-delete by status, and basic stats (applications per week, response rate).
 - **AI resume tailoring** — bring your own Anthropic or OpenAI API key, tailor your
@@ -142,16 +143,16 @@ applied"**, or add/edit an entry directly in the dashboard.
    no key, no per-token cost, no data ever leaving your network. It needs no key,
    just a reachable server URL (default `http://localhost:11434`); the model field
    is pre-filled with `llama3.2:latest`/`llama3.2:1b` to get started.
-2. On any application with a job description, click **Tailor for this job**. Two
+2. On any application with a job description, click **Tailor for this job**. Three
    checkboxes let you choose whether to also receive a **match rating** (0–5
    stars, with a short justification of which requirements you meet, partially
-   meet, or are missing) and **interview & cover-letter suggestions** — any
-   combination of both, one, or neither; the tailored resume itself is always
-   produced. Sections you opt out of are never requested from the model, so
-   you're not billed for output you don't want. The dashboard shows an
-   estimated cost first — extrapolated from your own tailoring history for
-   that model once you have some, or a rough estimate otherwise. Real token
-   usage and actual cost are shown once it completes.
+   meet, or are missing), **interview & cover-letter suggestions**, and a full
+   standalone **cover letter** — any combination, including none of them; the
+   tailored resume itself is always produced. Sections you opt out of are never
+   requested from the model, so you're not billed for output you don't want. The
+   dashboard shows an estimated cost first — extrapolated from your own tailoring
+   history for that model once you have some, or a rough estimate otherwise. Real
+   token usage and actual cost are shown once it completes.
 3. Your base resume can be pasted as plain text or uploaded as a PDF/Word (.docx)
    file — an upload extracts the text for you to review and edit before saving.
 4. Download any tailored resume as **PDF, Word (.docx), or plain text**; the match
@@ -203,15 +204,19 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `DELETE` | `/applications/:id`                      | Delete one (and any tailored resume versions for it)         |
 | `DELETE` | `/applications?status=`                  | Bulk-delete all applications with a given status             |
 | `GET`    | `/applications/export.csv`               | Download all rows as CSV                                     |
+| `GET`    | `/applications/export.xlsx`              | Download all rows as an Excel workbook                       |
 | `GET`    | `/applications/stats`                    | Applications-per-week (last 8 weeks) + response rate         |
+| `GET`    | `/applications/stats/daily`               | Day-by-day breakdown for the trend-detail modal (`?weeks=&offset=`) |
 | `POST`   | `/applications/mark-stale`               | Bulk-mark old `applied` rows as `stale` (`{ thresholdDays }`) |
 | `POST`   | `/applications/:id/tailor`               | Generate a tailored resume for this application              |
 | `GET`    | `/applications/:id/tailor-estimate`      | Pre-generate cost estimate for a tailor run                  |
 | `GET`    | `/applications/:id/resume-versions`      | List tailored resume versions for this application           |
+| `GET`    | `/applications/:id/resume-versions/:versionId/download` | Download a tailored resume as PDF/DOCX/TXT (`?format=`) |
 | `GET`    | `/settings`                              | Client-safe AI settings (never returns raw API keys)         |
 | `PUT`    | `/settings`                              | Update AI provider, model, keys, base resume, or pricing     |
 | `GET`    | `/settings/models?provider=`             | Live model list from the provider, using your stored/env key |
 | `GET`    | `/settings/known-pricing`                | Curated, dated snapshot of published provider prices          |
+| `POST`   | `/settings/base-resume/extract`          | Extract plain text from an uploaded PDF/DOCX base resume       |
 | `GET`    | `/health`                                | Liveness check                                                |
 
 The `POST /applications` body shape is intentionally compatible with what the browser
@@ -243,12 +248,6 @@ SETUP.md         Detailed setup (Docker or manual), configuration reference, tro
 
 ## Known limitations / post-1.0 backlog
 
-- **Job description formatting** ([#12](https://github.com/jdavidIP/Applyt/issues/12)) —
-  captured job descriptions are read correctly but rendered with inconsistent
-  whitespace/layout, which is harder to read and may affect AI tailoring quality.
-- **Cover letter generation** ([#15](https://github.com/jdavidIP/Applyt/issues/15)) —
-  not yet supported; tailoring currently produces a resume (plus optional match
-  rating and interview suggestions) only.
 - **Gmail confirmation-email fallback for Indeed** (CLAUDE.md §6/§8) — deferred
   indefinitely; the extension's own DOM-based detection is the only detection path.
 - The extension has no automated tests (see [Tests](#tests) above); Glassdoor's
