@@ -45,6 +45,7 @@ export function TrendModal({ onClose }: Props) {
     let active = true;
     setSelection(null);
     setApps(null);
+    setError(null);
     void (async () => {
       try {
         const res = await api.dailyStats(weeks, offset);

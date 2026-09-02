@@ -15,6 +15,11 @@ import { TrendModal } from './components/TrendModal';
 import { useToast } from './components/Toast';
 import { useLifecycleStats } from './hooks/useLifecycleStats';
 
+// Issue #20 page-wide zoom (see the comment above the layout below) — kept as
+// one constant since the sidebar's height compensates for this exact value;
+// changing one without the other would silently reintroduce the 12% overshoot.
+const PAGE_ZOOM = 1.12;
+
 const DEFAULT_FILTERS: Filters = {
   platform: '',
   status: '',
@@ -133,8 +138,11 @@ export default function App() {
   // height match the real viewport exactly, so mt-auto lands right at the
   // visible bottom edge.
   return (
-    <div className="min-h-screen bg-cream [zoom:1.12] flex">
-      <aside className="w-[280px] shrink-0 self-start sticky top-0 min-h-[calc(100vh/1.12)] bg-matcha-50 border-r-[0.5px] border-matcha-200 flex flex-col p-6">
+    <div className="min-h-screen bg-cream flex" style={{ zoom: PAGE_ZOOM }}>
+      <aside
+        className="w-[280px] shrink-0 self-start sticky top-0 bg-matcha-50 border-r-[0.5px] border-matcha-200 flex flex-col p-6"
+        style={{ minHeight: `calc(100vh / ${PAGE_ZOOM})` }}
+      >
         <div className="flex items-center gap-2 mb-10">
           <IconCircleCheck className="text-matcha-400" size={28} stroke={1.75} />
           <div>
