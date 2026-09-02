@@ -81,21 +81,25 @@ export function computePerWeek(dateApplied: string[]): WeeklyCount[] {
 }
 
 // Day-by-day breakdown for the trend-detail modal's chart, over a fixed
-// `weeks`-week window ending `offsetWeeks * weeks * 7` days before today
-// (offset 0 = the most recent window) — mirrors computePerWeek's zero-filled
-// bucketing, just at daily instead of weekly granularity, and pageable via
-// offset instead of always ending "now".
+// `weeks`-week window ending `offsetWeeks * weeks * 7` days before the
+// current calendar week (offset 0 = the most recent window) — mirrors
+// computePerWeek's zero-filled bucketing and its use of mondayOf so both
+// widgets agree on where a week starts, just at daily instead of weekly
+// granularity, and pageable via offset instead of always ending "now".
+//
+// Weeks are calendar weeks (Monday-Sunday), not a rolling "last N days"
+// window: at offset 0 the window always ends on the Sunday of the *current*
+// week, so if today is e.g. a Monday, the rest of that week's (future) days
+// still render as zero-count bars rather than being cut off.
 export function computePerDay(
   dateApplied: string[],
   weeks: number,
   offsetWeeks: number,
 ): DailyStatsResponse {
   const totalDays = weeks * 7;
-  const today = new Date();
-  const rangeEndDate = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
-  );
-  rangeEndDate.setUTCDate(rangeEndDate.getUTCDate() - offsetWeeks * totalDays);
+  const currentWeekMonday = mondayOf(new Date());
+  const rangeEndDate = new Date(currentWeekMonday);
+  rangeEndDate.setUTCDate(rangeEndDate.getUTCDate() + 6 - offsetWeeks * totalDays);
   const rangeStartDate = new Date(rangeEndDate);
   rangeStartDate.setUTCDate(rangeStartDate.getUTCDate() - (totalDays - 1));
 

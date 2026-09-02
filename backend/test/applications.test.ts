@@ -662,17 +662,33 @@ test('stats is not shadowed by the :id route', async () => {
   assert.equal(res.statusCode, 200);
 });
 
-test('GET /applications/stats/daily defaults to a 4-week, zero-filled window ending today', async () => {
+test('GET /applications/stats/daily defaults to a 4-week window zero-filled through the end of the current calendar week', async () => {
   await createSample({ platform_job_id: 'daily1', date_applied: new Date().toISOString() });
 
   const res = await app.inject({ method: 'GET', url: '/applications/stats/daily' });
   assert.equal(res.statusCode, 200);
   const body = res.json() as { days: { date: string; count: number }[]; rangeStart: string; rangeEnd: string };
   assert.equal(body.days.length, 28);
-  assert.equal(body.rangeEnd, new Date().toISOString().slice(0, 10));
+
+  // Weeks are calendar weeks (Monday-Sunday), matching computePerWeek's
+  // mondayOf convention — not a rolling "last 28 days ending today" window.
+  assert.equal(new Date(`${body.rangeStart}T00:00:00Z`).getUTCDay(), 1); // Monday
+  assert.equal(new Date(`${body.rangeEnd}T00:00:00Z`).getUTCDay(), 0); // Sunday
+
   const total = body.days.reduce((sum, d) => sum + d.count, 0);
   assert.equal(total, 1);
-  assert.equal(body.days[body.days.length - 1].count, 1); // lands on today, the last day in the window
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayBucket = body.days.find((d) => d.date === todayIso);
+  assert.equal(todayBucket?.count, 1);
+});
+
+test('GET /applications/stats/daily includes the rest of the current week even when its days are still in the future', async () => {
+  const res = await app.inject({ method: 'GET', url: '/applications/stats/daily?weeks=4&offset=0' });
+  const body = res.json() as { days: { date: string; count: number }[]; rangeEnd: string };
+  // rangeEnd is always this week's Sunday, so it's never before today.
+  const today = new Date().toISOString().slice(0, 10);
+  assert.ok(body.rangeEnd >= today, `expected rangeEnd (${body.rangeEnd}) >= today (${today})`);
+  assert.ok(body.days.some((d) => d.date === body.rangeEnd));
 });
 
 test('GET /applications/stats/daily buckets a full-timestamp date_applied by its calendar day', async () => {
