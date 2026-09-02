@@ -5,12 +5,14 @@ nothing is sent to any server we operate. See [`CLAUDE.md`](./CLAUDE.md) for the
 product spec and roadmap, [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how the pieces
 fit together, and [`SETUP.md`](./SETUP.md) for detailed setup (Docker or manual).
 
-> **Status: v1.0 — feature-complete.** All six phases of the original roadmap
-> (CLAUDE.md §7) are done: manual tracking, auto-capture on Indeed/LinkedIn/
-> Glassdoor, lifecycle management, AI resume tailoring with cost tracking, an
-> ATS-friendly template for tailored resume downloads, and one-command Docker
-> packaging all work today. Ongoing work from here is bug fixes and incremental
-> enhancements filed as GitHub issues, not new phases.
+> **Status: v1.1 — feature-complete, actively developed.** All six phases of
+> the original roadmap (CLAUDE.md §7) shipped in v1.0: manual tracking,
+> auto-capture on Indeed/LinkedIn/Glassdoor, lifecycle management, AI resume
+> tailoring with cost tracking, an ATS-friendly template for tailored resume
+> downloads, and one-command Docker packaging. Since then it's picked up
+> search/location/modality filtering, cover letter generation, a keyless local
+> Ollama provider, and a live-updating dashboard. Ongoing work is bug fixes and
+> incremental enhancements filed as GitHub issues, not new phases.
 
 ![Dashboard](docs/screenshots/dashboard.jpg)
 ![Application trends](docs/screenshots/trends.jpg)
