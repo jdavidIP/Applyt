@@ -7,7 +7,8 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
 import { createDb } from '../src/storage/db.ts';
 import { createSettingsStore } from '../src/storage/settings.ts';
-import type { Application } from '../src/types/index.ts';
+import type { Application, ResumeVersion } from '../src/types/index.ts';
+import { parseTailoredResume } from '../src/resume/tailoredResume.ts';
 
 let app: FastifyInstance;
 const db = createDb(':memory:');
@@ -126,4 +127,89 @@ test('bulk-delete rejects empty, non-integer, and oversized id lists', async () 
   }
   const missing = await app.inject({ method: 'POST', url: '/applications/bulk-delete', payload: {} });
   assert.equal(missing.statusCode, 400);
+});
+
+// ---- POST /applications/:id/resume-versions ----
+
+const envelope = {
+  resume: {
+    contact: { name: 'Jane Doe', email: 'jane@example.com' },
+    summary: 'Engineer.',
+    experience: [
+      { title: 'Engineer', company: 'Acme', startDate: 'Jan 2022', endDate: 'Present', bullets: ['Built things'] },
+    ],
+    education: [{ institution: 'State U', degree: 'BSc CS', dates: '2018 - 2022' }],
+    skills: [{ label: 'Languages', items: ['TypeScript'] }],
+  },
+  matchRating: 4,
+  matchJustification: ['Strong TypeScript'],
+  suggestions: ['Mention AWS'],
+};
+
+const coverLetter = {
+  contact: { name: 'Jane Doe' },
+  date: 'Oct 19, 2026',
+  header: { recipient: 'Hiring Team', company: 'Acme' },
+  body: 'Para one.\n\nPara two.',
+  footer: 'Sincerely, Jane Doe',
+};
+
+test('save resume version stores an mcp row the existing parser and downloads understand', async () => {
+  const a = await createSample();
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${a.id}/resume-versions`,
+    payload: envelope,
+  });
+  assert.equal(res.statusCode, 201);
+  const v = res.json() as ResumeVersion;
+  assert.equal(v.application_id, a.id);
+  assert.equal(v.ai_provider, 'mcp');
+  assert.equal(v.model, null);
+  assert.equal(v.cost, 0);
+  assert.equal(v.base_resume_snapshot, 'Jane Doe\nSoftware Engineer');
+
+  const parsed = parseTailoredResume(v.tailored_output as string);
+  assert.equal(parsed.matchRating, 4);
+  assert.equal(parsed.suggestions, '- Mention AWS'); // parser renders bullets as display text
+  assert.equal(parsed.structured?.contact.name, 'Jane Doe');
+  assert.equal(count('cover_letters'), 0);
+
+  const pdf = await app.inject({
+    method: 'GET',
+    url: `/applications/${a.id}/resume-versions/${v.id}/download?format=pdf`,
+  });
+  assert.equal(pdf.statusCode, 200);
+
+  const row = await app.inject({ method: 'GET', url: `/applications/${a.id}` });
+  assert.equal((row.json() as Application).has_resume_version, true);
+});
+
+test('save resume version with a cover letter also writes a cover_letters row', async () => {
+  const a = await createSample();
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${a.id}/resume-versions`,
+    payload: { ...envelope, coverLetter },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(count('cover_letters'), 1);
+  assert.ok(parseTailoredResume((res.json() as ResumeVersion).tailored_output as string).coverLetter);
+});
+
+test('save resume version rejects a malformed nested field with its path', async () => {
+  const a = await createSample();
+  const bad = {
+    ...envelope,
+    resume: { ...envelope.resume, experience: [{ ...envelope.resume.experience[0], bullets: 'one\ntwo' }] },
+  };
+  const res = await app.inject({ method: 'POST', url: `/applications/${a.id}/resume-versions`, payload: bad });
+  assert.equal(res.statusCode, 400);
+  assert.match((res.json() as { error: string }).error, /resume\.experience\[0\]\.bullets/);
+  assert.equal(count('resume_versions'), 0);
+});
+
+test('save resume version 404s for an unknown application', async () => {
+  const res = await app.inject({ method: 'POST', url: '/applications/999999/resume-versions', payload: envelope });
+  assert.equal(res.statusCode, 404);
 });

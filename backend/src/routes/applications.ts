@@ -42,6 +42,11 @@ import {
   computePerDay,
   type AppVersionInfo,
 } from "../export/reportData.js";
+import {
+  type CoverLetter,
+  type TailorResponseEnvelope,
+} from "../types/resumeSchema.js";
+import { findEnvelopeError } from "../resume/envelopeValidation.js";
 import { buildApplicationsWorkbook } from "../export/xlsxExport.js";
 import { buildApplicationsReport } from "../export/csvExport.js";
 import {
@@ -99,6 +104,66 @@ export default async function applicationsRoutes(
       .prepare(`DELETE FROM applications WHERE id IN (${placeholders})`)
       .run(...ids).changes;
   });
+
+  // The one place a resume_versions row (plus its optional cover_letters
+  // row) gets written, shared by /tailor and the MCP save route so the two
+  // persistence paths can't drift.
+  function insertResumeVersion(row: {
+    applicationId: number;
+    baseResume: string | null;
+    output: string;
+    provider: string;
+    model: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    cost: number | null;
+    inputCharLength: number | null;
+    coverLetter: CoverLetter | null;
+  }): ResumeVersion {
+    const now = new Date().toISOString();
+    const insert = db.transaction(() => {
+      const info = db
+        .prepare(
+          `INSERT INTO resume_versions
+             (application_id, base_resume_snapshot, tailored_output, ai_provider,
+              model, input_tokens, output_tokens, cost, input_char_length, created_at)
+           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider,
+              @model, @input_tokens, @output_tokens, @cost, @input_char_length, @created_at)`,
+        )
+        .run({
+          application_id: row.applicationId,
+          base_resume_snapshot: row.baseResume,
+          tailored_output: row.output,
+          ai_provider: row.provider,
+          model: row.model,
+          input_tokens: row.inputTokens,
+          output_tokens: row.outputTokens,
+          cost: row.cost,
+          input_char_length: row.inputCharLength,
+          created_at: now,
+        });
+      if (row.coverLetter) {
+        db.prepare(
+          `INSERT INTO cover_letters
+             (application_id, resume_version_id, tailored_output, created_at)
+           VALUES (@application_id, @resume_version_id, @tailored_output, @created_at)`,
+        ).run({
+          application_id: row.applicationId,
+          resume_version_id: info.lastInsertRowid,
+          tailored_output: JSON.stringify(row.coverLetter),
+          created_at: now,
+        });
+      }
+      db.prepare(
+        "UPDATE applications SET updated_at = @now WHERE id = @id",
+      ).run({ now, id: row.applicationId });
+      return info.lastInsertRowid;
+    });
+    const id = insert();
+    return db
+      .prepare("SELECT * FROM resume_versions WHERE id = ?")
+      .get(id) as ResumeVersion;
+  }
 
   // GET /applications — list with optional platform/status filter, sort, and
   // pagination (page/pageSize; defaults 1/25, pageSize capped at 100).
@@ -720,55 +785,24 @@ export default async function applicationsRoutes(
               (usage.outputTokens / 1_000_000) * price.outputPerMillion
             : null;
 
-      const now = new Date().toISOString();
-      const info = db
-        .prepare(
-          `INSERT INTO resume_versions
-             (application_id, base_resume_snapshot, tailored_output, ai_provider,
-              model, input_tokens, output_tokens, cost, input_char_length, created_at)
-           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider,
-              @model, @input_tokens, @output_tokens, @cost, @input_char_length, @created_at)`,
-        )
-        .run({
-          application_id: app.id,
-          base_resume_snapshot: baseResume,
-          tailored_output: output,
-          ai_provider: cfg.provider,
-          model: cfg.model,
-          input_tokens: usage.inputTokens,
-          output_tokens: usage.outputTokens,
-          cost,
-          input_char_length: baseResume.length + jobDescription.length,
-          created_at: now,
-        });
-
       // Only persist a cover_letters row when one was actually requested AND
       // the model returned something coerceCoverLetter accepts — a run that
       // was asked for a cover letter but produced nothing parseable isn't
       // worth a broken/empty row.
-      if (includeCoverLetter) {
-        const { coverLetter } = parseTailoredResume(output);
-        if (coverLetter) {
-          db.prepare(
-            `INSERT INTO cover_letters
-               (application_id, resume_version_id, tailored_output, created_at)
-             VALUES (@application_id, @resume_version_id, @tailored_output, @created_at)`,
-          ).run({
-            application_id: app.id,
-            resume_version_id: info.lastInsertRowid,
-            tailored_output: JSON.stringify(coverLetter),
-            created_at: now,
-          });
-        }
-      }
-
-      db.prepare(
-        "UPDATE applications SET updated_at = @now WHERE id = @id",
-      ).run({ now, id: app.id });
-
-      const created = db
-        .prepare("SELECT * FROM resume_versions WHERE id = ?")
-        .get(info.lastInsertRowid) as ResumeVersion;
+      const created = insertResumeVersion({
+        applicationId: app.id,
+        baseResume,
+        output,
+        provider: cfg.provider,
+        model: cfg.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cost,
+        inputCharLength: baseResume.length + jobDescription.length,
+        coverLetter: includeCoverLetter
+          ? (parseTailoredResume(output).coverLetter ?? null)
+          : null,
+      });
       return reply.code(201).send(created);
     },
   );
@@ -784,6 +818,38 @@ export default async function applicationsRoutes(
           "SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC",
         )
         .all(request.params.id) as ResumeVersion[];
+    },
+  );
+
+  // POST /applications/:id/resume-versions — save a tailored resume written
+  // elsewhere (the MCP server: Claude itself does the tailoring, so there is
+  // no provider call, token usage, or cost). Stored in the same envelope
+  // format /tailor writes, so TailorModal and every download format work
+  // unchanged. Validated strictly (findEnvelopeError) so the caller learns
+  // exactly which field to fix instead of having entries silently dropped.
+  fastify.post<{ Params: { id: number }; Body: TailorResponseEnvelope }>(
+    "/applications/:id/resume-versions",
+    { schema: { params: idParamSchema } },
+    async (request, reply) => {
+      const app = getApplicationById(request.params.id);
+      if (!app) return reply.code(404).send({ error: "Application not found" });
+      const error = findEnvelopeError(request.body);
+      if (error) return reply.code(400).send({ error });
+
+      const envelope = request.body;
+      const created = insertResumeVersion({
+        applicationId: app.id,
+        baseResume: settings.read().baseResume.trim() || null,
+        output: JSON.stringify(envelope),
+        provider: "mcp",
+        model: null,
+        inputTokens: null,
+        outputTokens: null,
+        cost: 0,
+        inputCharLength: null,
+        coverLetter: envelope.coverLetter ?? null,
+      });
+      return reply.code(201).send(created);
     },
   );
 
