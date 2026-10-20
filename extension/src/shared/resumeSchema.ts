@@ -1,25 +1,31 @@
-// Mirrors backend/src/resumeSchema.ts (and the dashboard copy). The extension
-// is bundled separately from the backend, so this is a hand-copied mirror kept
-// in sync manually rather than a cross-workspace import. Only the coercion
-// logic needed to parse a tailor run's JSON output for the popup preview is
-// duplicated here — the extension never renders StructuredResume into a
-// template itself (that only happens in the backend's download route).
+// MIRRORED: identical copies (imports aside) live in the backend, dashboard
+// and extension — no shared package. Edit all three;
+// backend/test/mirror-sync.test.ts fails if they drift.
+//
+// Structured resume shape (Phase 5: ATS resume template). The AI is prompted
+// (ai.ts) to return a tailored resume as this JSON structure instead of a flat
+// text blob, so resumeRender.ts has real sections to lay out into a proper
+// template rather than dumb-dumping lines into a PDF/DOCX.
+//
+// Every field beyond `contact.name` is optional: the AI won't always have a
+// project section, honors line, etc. to fill in, and the renderer must skip
+// sections that aren't present rather than emit an empty heading.
 
 export interface ResumeContact {
   name: string;
   email?: string;
   phone?: string;
   location?: string;
-  links?: string[];
+  links?: string[]; // pre-formatted display strings, e.g. "github.com/x" — no protocol required
 }
 
 export interface ResumeExperienceEntry {
   title: string;
   company: string;
   location?: string;
-  startDate: string;
-  endDate: string;
-  bullets: string[];
+  startDate: string; // free text, e.g. "Jun 2022" — resumes use fuzzy dates, not real Date values
+  endDate: string; // "Present" allowed
+  bullets: string[]; // no leading "-"/"•" — the renderer adds the glyph
 }
 
 export interface ResumeProjectEntry {
@@ -32,13 +38,13 @@ export interface ResumeEducationEntry {
   institution: string;
   degree: string;
   dates: string;
-  honors?: string;
-  coursework?: string;
+  honors?: string; // e.g. "With Distinction, Major in Cybersecurity"
+  coursework?: string; // e.g. "Relevant Coursework: Data Structures, ..."
 }
 
 export interface ResumeSkillCategory {
-  label: string;
-  items: string[];
+  label: string; // e.g. "Languages"
+  items: string[]; // rendered comma-separated
 }
 
 export interface StructuredResume {
@@ -51,22 +57,37 @@ export interface StructuredResume {
 }
 
 export interface CoverLetterHeader {
-  recipient: string;
+  recipient: string; // e.g. "Hiring Team", or a named contact from the job description
   company: string;
 }
 
 export interface CoverLetter {
   contact: ResumeContact;
-  date: string;
+  date: string; // free text, e.g. "August 10, 2026"
   header: CoverLetterHeader;
-  body: string;
-  footer: string;
+  body: string; // 3-4 paragraphs joined by "\n\n", no bullets
+  footer: string; // sign-off, e.g. "Sincerely, Jane Doe"
+}
+
+// The full JSON object the AI is asked to return in one shot (ai.ts). Match
+// rating/justification/suggestions/coverLetter live alongside the resume
+// itself so there's a single parse, single failure mode — see
+// tailoredResume.ts.
+export interface TailorResponseEnvelope {
+  resume: StructuredResume;
+  coverLetter?: CoverLetter;
+  matchRating?: number; // integer 0-5
+  matchJustification?: string[]; // bullet strings, no leading "-"
+  suggestions?: string[]; // bullet strings, no leading "-"
 }
 
 function isStringArray(x: unknown): x is string[] {
   return Array.isArray(x) && x.every((item) => typeof item === 'string');
 }
 
+// Coerces a bullets field that should be string[] but came back as a single
+// newline-separated string (a real thing models do despite explicit schema
+// instructions) rather than rejecting the whole entry over it.
 function coerceBullets(x: unknown): string[] {
   if (isStringArray(x)) return x;
   if (typeof x === 'string') {
@@ -134,6 +155,11 @@ function coerceContact(x: unknown): ResumeContact | null {
   };
 }
 
+// Strict on top-level shape (a resume without a name, or with an unusable
+// experience/education/skills array, isn't worth rendering as structured
+// data), lenient on nested fields (one malformed bullet or missing date
+// shouldn't nuke the whole tailored resume) — malformed nested items are
+// dropped rather than failing the whole parse.
 export function coerceStructuredResume(x: unknown): StructuredResume | null {
   if (!isPlainObject(x)) return null;
   const contact = coerceContact(x.contact);
@@ -154,6 +180,9 @@ export function coerceStructuredResume(x: unknown): StructuredResume | null {
   };
 }
 
+// Lenient like coerceStructuredResume: a cover letter needs a real contact,
+// header (recipient + company), and non-empty body to be worth rendering;
+// date/footer fall back to an empty string rather than failing the parse.
 export function coerceCoverLetter(x: unknown): CoverLetter | null {
   if (!isPlainObject(x)) return null;
   const contact = coerceContact(x.contact);
@@ -175,4 +204,27 @@ export function coerceCoverLetter(x: unknown): CoverLetter | null {
     body: x.body,
     footer: typeof x.footer === 'string' ? x.footer : '',
   };
+}
+
+export function isStructuredResume(x: unknown): x is StructuredResume {
+  return coerceStructuredResume(x) !== null;
+}
+
+// The sections every tailor run produces, parsed out of the raw
+// tailored_output blob (see tailoredResume.ts). The AI is prompted to emit a
+// single structured JSON object (StructuredResume + rating/justification/
+// suggestions) so this is reliably parseable; matchRating is null when the
+// model's rating couldn't be parsed or when the row predates the structured
+// format. `resume` is always a flattened plain-text version of the resume
+// (for the txt download format and any other consumer expecting flat text);
+// `structured` is populated only for rows written in the new JSON format —
+// older rows (marker-delimited or pre-Phase-4 flat text) get `structured:
+// null` and fall back to the plain-text renderer.
+export interface TailoredSections {
+  resume: string;
+  structured: StructuredResume | null;
+  coverLetter: CoverLetter | null;
+  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
+  matchJustification: string;
+  suggestions: string;
 }
