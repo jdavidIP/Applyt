@@ -128,6 +128,23 @@ export const bulkDeleteQuerySchema = {
   },
 } as const;
 
+// POST /applications/bulk-delete — used by the MCP server's confirm_delete.
+// A separate POST route rather than a body on DELETE /applications, which
+// already exists for delete-by-status and requires ?status=.
+export const bulkDeleteIdsSchema = {
+  type: 'object',
+  required: ['ids'],
+  additionalProperties: false,
+  properties: {
+    ids: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'integer', minimum: 1 },
+    },
+  },
+} as const;
+
 export const resumeVersionParamSchema = {
   type: 'object',
   required: ['id', 'versionId'],
