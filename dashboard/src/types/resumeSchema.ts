@@ -81,7 +81,7 @@ export interface TailorResponseEnvelope {
   suggestions?: string[]; // bullet strings, no leading "-"
 }
 
-function isStringArray(x: unknown): x is string[] {
+export function isStringArray(x: unknown): x is string[] {
   return Array.isArray(x) && x.every((item) => typeof item === 'string');
 }
 
@@ -99,7 +99,7 @@ function coerceBullets(x: unknown): string[] {
   return [];
 }
 
-function isPlainObject(x: unknown): x is Record<string, unknown> {
+export function isPlainObject(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
 
