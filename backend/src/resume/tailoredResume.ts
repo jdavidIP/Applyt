@@ -1,6 +1,9 @@
-import type { TailoredSections } from '../types/index.js';
-import { coerceStructuredResume, coerceCoverLetter, type StructuredResume } from '../types/resumeSchema.js';
+import { coerceStructuredResume, coerceCoverLetter, type StructuredResume, type TailoredSections } from '../types/resumeSchema.js';
 
+// MIRRORED: identical copies (imports aside) live in the backend, dashboard
+// and extension — no shared package. Edit all three;
+// backend/test/mirror-sync.test.ts fails if they drift.
+//
 // The AI (ai.ts) is prompted to return a single JSON object (a
 // TailorResponseEnvelope) containing the tailored resume as structured
 // sections plus optional match rating/justification/suggestions, so

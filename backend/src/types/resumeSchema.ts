@@ -1,3 +1,7 @@
+// MIRRORED: identical copies (imports aside) live in the backend, dashboard
+// and extension — no shared package. Edit all three;
+// backend/test/mirror-sync.test.ts fails if they drift.
+//
 // Structured resume shape (Phase 5: ATS resume template). The AI is prompted
 // (ai.ts) to return a tailored resume as this JSON structure instead of a flat
 // text blob, so resumeRender.ts has real sections to lay out into a proper
@@ -204,4 +208,23 @@ export function coerceCoverLetter(x: unknown): CoverLetter | null {
 
 export function isStructuredResume(x: unknown): x is StructuredResume {
   return coerceStructuredResume(x) !== null;
+}
+
+// The sections every tailor run produces, parsed out of the raw
+// tailored_output blob (see tailoredResume.ts). The AI is prompted to emit a
+// single structured JSON object (StructuredResume + rating/justification/
+// suggestions) so this is reliably parseable; matchRating is null when the
+// model's rating couldn't be parsed or when the row predates the structured
+// format. `resume` is always a flattened plain-text version of the resume
+// (for the txt download format and any other consumer expecting flat text);
+// `structured` is populated only for rows written in the new JSON format —
+// older rows (marker-delimited or pre-Phase-4 flat text) get `structured:
+// null` and fall back to the plain-text renderer.
+export interface TailoredSections {
+  resume: string;
+  structured: StructuredResume | null;
+  coverLetter: CoverLetter | null;
+  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
+  matchJustification: string;
+  suggestions: string;
 }

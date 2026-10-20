@@ -1,20 +1,26 @@
-// Mirror of backend/src/tailoredResume.ts (and the dashboard copy). The
-// extension is bundled separately from the backend, so — like shared/types.ts —
-// this is a hand-copied mirror kept in sync manually rather than a cross-
-// workspace import. The popup parses a tailor run's raw tailored_output into
-// its sections itself, so it must agree with the backend's JSON-envelope
-// contract (with fallbacks for rows written before it existed).
+import { coerceStructuredResume, coerceCoverLetter, type StructuredResume, type TailoredSections } from './resumeSchema';
 
-import { coerceStructuredResume, coerceCoverLetter, type StructuredResume, type CoverLetter } from './resumeSchema';
-
-export interface TailoredSections {
-  resume: string;
-  structured: StructuredResume | null;
-  coverLetter: CoverLetter | null;
-  matchRating: number | null; // integer 0–5; 5 = strongest match, 0 = out of scope
-  matchJustification: string;
-  suggestions: string;
-}
+// MIRRORED: identical copies (imports aside) live in the backend, dashboard
+// and extension — no shared package. Edit all three;
+// backend/test/mirror-sync.test.ts fails if they drift.
+//
+// The AI (ai.ts) is prompted to return a single JSON object (a
+// TailorResponseEnvelope) containing the tailored resume as structured
+// sections plus optional match rating/justification/suggestions, so
+// resumeRender.ts can lay it out into a real ATS template. parseTailoredResume
+// is the single place that turns a resume_versions.tailored_output blob back
+// into usable pieces, and it must keep working for rows written before this
+// format existed:
+//
+//   1. New format: a JSON object (this file's primary path).
+//   2. Old marker-delimited format (Phase 4's original format):
+//      ===TAILORED_RESUME=== / ===MATCH_RATING=== / ===MATCH_JUSTIFICATION===
+//      / ===SUGGESTIONS===
+//   3. Oldest format (pre-Phase-4): flat text with a loose "Suggestions:"
+//      heading, or no structure at all.
+//
+// Only path 1 populates `structured`; paths 2 and 3 return `structured: null`
+// and resumeRender.ts falls back to its plain-text renderer for those rows.
 
 type SectionName = 'TAILORED_RESUME' | 'MATCH_RATING' | 'MATCH_JUSTIFICATION' | 'SUGGESTIONS';
 const SECTION_MARKER = /^===\s*(TAILORED_RESUME|MATCH_RATING|MATCH_JUSTIFICATION|SUGGESTIONS)\s*===$/;
@@ -49,18 +55,24 @@ function parseLegacyMarkerFormat(output: string): TailoredSections | null {
   if (!sawMarker) return null;
 
   const section = (name: SectionName): string => (buckets[name] ?? []).join('\n').trim();
+
+  // Tolerate a rating expressed as "4", "4/5", "4 stars", etc. — take the first
+  // 0–5 digit. Null when the section is missing or has no parseable digit.
   const ratingMatch = section('MATCH_RATING').match(/[0-5]/);
 
   return {
     resume: section('TAILORED_RESUME'),
     structured: null,
-    coverLetter: null,
+    coverLetter: null, // this format predates cover-letter support
     matchRating: ratingMatch ? Number(ratingMatch[0]) : null,
     matchJustification: section('MATCH_JUSTIFICATION'),
     suggestions: section('SUGGESTIONS'),
   };
 }
 
+// Strips a leading/trailing markdown code fence and any prose surrounding the
+// JSON object — common LLM JSON-output gotchas even when the prompt asks for
+// raw JSON only.
 function extractJsonPayload(raw: string): string {
   const trimmed = raw.trim();
   const fenceMatch = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/.exec(trimmed);
@@ -77,7 +89,11 @@ function bulletLines(bullets: string[]): string[] {
   return bullets.map((b) => `- ${b}`);
 }
 
-function flattenStructuredResume(resume: StructuredResume): string {
+// Turns a StructuredResume back into the same flat plain-text convention the
+// old renderer/dashboard understand ("- " bullets), so `.resume` stays
+// meaningful for the txt download format and any other consumer expecting a
+// flat string.
+export function flattenStructuredResume(resume: StructuredResume): string {
   const lines: string[] = [];
   const { contact } = resume;
 
@@ -124,6 +140,31 @@ function flattenStructuredResume(resume: StructuredResume): string {
   }
 
   return lines.join('\n').trim();
+}
+
+// Detects the model's "this isn't a resume" rejection shape (ai.ts's
+// systemPrompt asks for exactly this instead of a TailorResponseEnvelope when
+// BASE RESUME clearly isn't a real resume). Must be checked before
+// parseTailoredResume — a rejection blob would otherwise fail
+// coerceStructuredResume (no `contact` field) and fall through to the legacy
+// parsers, which would misread it as garbled resume text instead of the
+// deliberate refusal it is.
+export function parseTailorRejection(output: string): { message: string } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonPayload(output));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const envelope = parsed as Record<string, unknown>;
+  if (envelope.error !== 'not_a_resume') return null;
+  return {
+    message:
+      typeof envelope.message === 'string' && envelope.message.trim()
+        ? envelope.message.trim()
+        : "This doesn't look like a resume — check the base resume saved in Settings.",
+  };
 }
 
 function parseJsonEnvelope(output: string): TailoredSections | null {
