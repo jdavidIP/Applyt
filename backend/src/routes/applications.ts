@@ -67,6 +67,18 @@ import {
   mergeStatus,
 } from "../applicationHelpers.js";
 
+// Attachment header for a user-supplied filename: an ASCII-only fallback
+// (quotes, backslashes and non-ASCII replaced) plus the exact name as RFC 5987
+// filename*, so names like `José "CV".pdf` survive without breaking the header.
+function contentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 interface RoutesOptions extends FastifyPluginOptions {
   db: Database.Database;
   settings: SettingsStore;
@@ -882,7 +894,11 @@ export default async function applicationsRoutes(
         for await (const part of request.files()) {
           parts.push({
             field: part.fieldname,
-            filename: part.filename,
+            // Browsers and Node's FormData escape `"` and CR/LF in multipart
+            // filenames (WHATWG spec); busboy doesn't undo it.
+            filename: part.filename
+              .replace(/%22/g, '"')
+              .replace(/%0D|%0A/gi, ""),
             data: await part.toBuffer(),
           });
         }
@@ -1012,7 +1028,7 @@ export default async function applicationsRoutes(
     },
   );
 
-  // GET /applications/:id/resume-versions/:versionId/download?format=pdf|docx|txt
+  // GET /applications/:id/resume-versions/:versionId/download?format=pdf|docx|txt[&kind=resume|cover_letter]
   // Renders the stored tailored_output on demand rather than storing multiple
   // binary formats per version — any past or present version becomes
   // downloadable in any format, with no schema changes and no re-running the
@@ -1022,7 +1038,7 @@ export default async function applicationsRoutes(
   // structured format existed.
   fastify.get<{
     Params: { id: number; versionId: number };
-    Querystring: { format: ResumeDownloadFormat };
+    Querystring: { format: ResumeDownloadFormat; kind: AttachmentKind };
   }>(
     "/applications/:id/resume-versions/:versionId/download",
     {
@@ -1038,11 +1054,40 @@ export default async function applicationsRoutes(
           "SELECT * FROM resume_versions WHERE id = ? AND application_id = ?",
         )
         .get(versionId, id) as ResumeVersion | undefined;
-      if (!version || !version.tailored_output) {
+      if (!version) {
         return reply.code(404).send({ error: "Resume version not found." });
       }
 
-      const { format } = request.query;
+      const { format, kind } = request.query;
+
+      // File versions serve the user's own attached files byte-for-byte —
+      // never re-rendered through the template.
+      if (version.ai_provider === "file" && format !== "txt") {
+        const file = db
+          .prepare(
+            "SELECT filename, data FROM resume_version_files WHERE resume_version_id = ? AND kind = ? AND format = ?",
+          )
+          .get(version.id, kind, format) as
+          | { filename: string; data: Buffer }
+          | undefined;
+        if (!file) {
+          const what = `${format === "pdf" ? "PDF" : "Word"} ${kind === "resume" ? "resume" : "cover letter"}`;
+          return reply
+            .code(404)
+            .send({ error: `This version has no ${what}.` });
+        }
+        reply.header("Content-Disposition", contentDisposition(file.filename));
+        return reply.type(FORMAT_MIME[format]).send(file.data);
+      }
+      // Generated cover letters deliberately have no download.
+      if (kind === "cover_letter" && version.ai_provider !== "file") {
+        return reply
+          .code(404)
+          .send({ error: "This version has no cover letter file." });
+      }
+      if (!version.tailored_output) {
+        return reply.code(404).send({ error: "Resume version not found." });
+      }
       const filenameBase = `resume-${id}-${versionId}`;
       const { resume, structured } = parseTailoredResume(
         version.tailored_output,

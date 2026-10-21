@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import PDFDocument from 'pdfkit';
 import { Document as DocxDocument, Packer, Paragraph } from 'docx';
@@ -211,4 +212,97 @@ test('deleting an application with a file version succeeds', async () => {
   const res = await app.inject({ method: 'DELETE', url: `/applications/${a.id}` });
   assert.equal(res.statusCode, 204);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM resume_version_files').get() as { n: number }).n, 0);
+});
+
+// ---- GET .../resume-versions/:versionId/download on file versions ----
+
+const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+
+function download(appId: number, versionId: number, query: string) {
+  return app.inject({ method: 'GET', url: `/applications/${appId}/resume-versions/${versionId}/download?${query}` });
+}
+
+async function uploadOk(appId: number, parts: Part[]): Promise<ResumeVersionWithFiles> {
+  const res = await upload(appId, parts);
+  assert.equal(res.statusCode, 201, res.body);
+  return res.json() as ResumeVersionWithFiles;
+}
+
+test('download returns the exact bytes for PDF and DOCX', async () => {
+  const a = await createApp();
+  const pdf = await makePdf('exact bytes');
+  const docx = await makeDocx('exact bytes');
+  const v = await uploadOk(a.id, [
+    { field: 'resume', filename: 'r.pdf', data: pdf },
+    { field: 'resume', filename: 'r.docx', data: docx },
+  ]);
+  const p = await download(a.id, v.id, 'format=pdf');
+  assert.equal(p.statusCode, 200);
+  assert.equal(p.headers['content-type'], 'application/pdf');
+  assert.equal(sha(p.rawPayload), sha(pdf));
+  const d = await download(a.id, v.id, 'format=docx');
+  assert.equal(d.statusCode, 200);
+  assert.match(String(d.headers['content-type']), /wordprocessingml/);
+  assert.equal(sha(d.rawPayload), sha(docx));
+});
+
+test('download uses the original filename', async () => {
+  const a = await createApp();
+  const v = await uploadOk(a.id, [{ field: 'resume', filename: 'Jose_Resume.pdf', data: await makePdf('x') }]);
+  const res = await download(a.id, v.id, 'format=pdf');
+  assert.match(String(res.headers['content-disposition']), /filename="Jose_Resume\.pdf"/);
+});
+
+test('a non-ASCII, quoted filename is encoded safely', async () => {
+  const a = await createApp();
+  const v = await uploadOk(a.id, [{ field: 'resume', filename: 'José "CV".pdf', data: await makePdf('x') }]);
+  const res = await download(a.id, v.id, 'format=pdf');
+  assert.equal(res.statusCode, 200);
+  const cd = String(res.headers['content-disposition']);
+  assert.match(cd, /filename\*=UTF-8''Jos%C3%A9%20%22CV%22\.pdf/);
+  const quoted = /filename="([^"]*)"/.exec(cd);
+  assert.ok(quoted, cd);
+  assert.match(quoted[1], /^[\x20-\x7e]*$/);
+});
+
+test('cover letter download returns the cover letter bytes', async () => {
+  const a = await createApp();
+  const cover = await makePdf('Dear team');
+  const v = await uploadOk(a.id, [
+    { field: 'resume', filename: 'r.pdf', data: await makePdf('resume') },
+    { field: 'cover_letter', filename: 'c.pdf', data: cover },
+  ]);
+  const res = await download(a.id, v.id, 'format=pdf&kind=cover_letter');
+  assert.equal(res.statusCode, 200);
+  assert.equal(sha(res.rawPayload), sha(cover));
+});
+
+test('a format that was not attached → 404 naming it', async () => {
+  const a = await createApp();
+  const v = await uploadOk(a.id, [{ field: 'resume', filename: 'r.pdf', data: await makePdf('x') }]);
+  const res = await download(a.id, v.id, 'format=docx');
+  assert.equal(res.statusCode, 404);
+  assert.match((res.json() as { error: string }).error, /no Word resume/);
+});
+
+test('txt on a file version returns the extracted text', async () => {
+  const a = await createApp();
+  const v = await uploadOk(a.id, [{ field: 'resume', filename: 'r.pdf', data: await makePdf('Plain words here') }]);
+  const res = await download(a.id, v.id, 'format=txt');
+  assert.equal(res.statusCode, 200);
+  assert.match(res.body, /Plain words here/);
+});
+
+test('kind=cover_letter on a generated version → 404, resume downloads unchanged', async () => {
+  const a = await createApp();
+  const gen = await app.inject({
+    method: 'POST',
+    url: `/applications/${a.id}/resume-versions`,
+    payload: { resume: { contact: { name: 'Jane' }, experience: [], education: [], skills: [] } },
+  });
+  const id = (gen.json() as { id: number }).id;
+  assert.equal((await download(a.id, id, 'format=pdf&kind=cover_letter')).statusCode, 404);
+  const pdf = await download(a.id, id, 'format=pdf');
+  assert.equal(pdf.statusCode, 200);
+  assert.equal(pdf.headers['content-type'], 'application/pdf');
 });

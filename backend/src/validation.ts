@@ -1,4 +1,4 @@
-import { PLATFORMS, APPLY_METHODS, STATUSES, MODALITIES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS, DAILY_STATS_WEEK_OPTIONS } from './types/index.js';
+import { PLATFORMS, APPLY_METHODS, STATUSES, MODALITIES, AI_PROVIDERS, RESUME_DOWNLOAD_FORMATS, DAILY_STATS_WEEK_OPTIONS, ATTACHMENT_KINDS } from './types/index.js';
 
 // Fastify JSON schemas for request bodies/queries. Enum sets are sourced from
 // types.ts so they cannot drift from the domain unions (and, in turn, the SQLite schema).
@@ -166,5 +166,6 @@ export const resumeDownloadQuerySchema = {
   additionalProperties: false,
   properties: {
     format: { type: 'string', enum: [...RESUME_DOWNLOAD_FORMATS] },
+    kind: { type: 'string', enum: [...ATTACHMENT_KINDS], default: 'resume' },
   },
 } as const;
