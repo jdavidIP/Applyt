@@ -174,7 +174,7 @@ export default async function applicationsRoutes(
     cost: number | null;
     inputCharLength: number | null;
     coverLetter: CoverLetter | null;
-  }): ResumeVersion {
+  }): ResumeVersionWithFiles {
     const now = new Date().toISOString();
     const insert = db.transaction(() => {
       const info = db
@@ -215,9 +215,13 @@ export default async function applicationsRoutes(
       return info.lastInsertRowid;
     });
     const id = insert();
-    return db
-      .prepare("SELECT * FROM resume_versions WHERE id = ?")
-      .get(id) as ResumeVersion;
+    // Same shape as the list route (files: [] here), so clients can treat any
+    // returned version uniformly.
+    return withFiles([
+      db
+        .prepare("SELECT * FROM resume_versions WHERE id = ?")
+        .get(id) as ResumeVersion,
+    ])[0];
   }
 
   // GET /applications — list with optional platform/status filter, sort, and

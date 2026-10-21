@@ -306,3 +306,14 @@ test('kind=cover_letter on a generated version → 404, resume downloads unchang
   assert.equal(pdf.statusCode, 200);
   assert.equal(pdf.headers['content-type'], 'application/pdf');
 });
+
+test('versions created by the save route (and /tailor, same helper) include files: []', async () => {
+  const a = await createApp();
+  const res = await app.inject({
+    method: 'POST',
+    url: `/applications/${a.id}/resume-versions`,
+    payload: { resume: { contact: { name: 'Jane' }, experience: [], education: [], skills: [] } },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual((res.json() as ResumeVersionWithFiles).files, []);
+});

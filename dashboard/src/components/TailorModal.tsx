@@ -17,6 +17,7 @@ import { api } from "../services/api";
 import { formatDate } from "../lib/labels";
 import { triggerBlobDownload } from "../lib/download";
 import { parseTailoredResume } from "../lib/tailoredResume";
+import { canDownload } from "../lib/versionFiles";
 import {
   isTailorRunning,
   trackTailorRun,
@@ -170,12 +171,8 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
 
   const hasJobDescription = Boolean(application.job_description?.trim());
   const isFileVersion = selected?.ai_provider === "file";
-  // Generated versions render any format on demand; file versions only have
-  // the formats that were actually attached (txt is the extracted text).
   const hasFormat = (kind: AttachmentKind, format: ResumeDownloadFormat) =>
-    !isFileVersion ||
-    format === "txt" ||
-    Boolean(selected?.files.some((f) => f.kind === kind && f.format === format));
+    !selected || canDownload(selected, kind, format);
   const coverLetterFiles = isFileVersion
     ? (selected?.files.filter((f) => f.kind === "cover_letter") ?? [])
     : [];
