@@ -169,6 +169,20 @@ test('preview_delete by status pages through more than 100 matches', async () =>
   assert.equal(preview.count, 150);
 });
 
+test('preview_delete refuses more than 500 matches instead of issuing a token that confirm cannot honor', async () => {
+  const routes: Record<string, () => { json: unknown }> = {};
+  for (let p = 1; p <= 6; p++) {
+    const ids = Array.from({ length: p === 6 ? 1 : 100 }, (_, i) => (p - 1) * 100 + i + 1);
+    routes[`GET /applications?status=rejected&pageSize=100&page=${p}`] = () => ({
+      json: { items: ids.map((id) => app(id)), total: 501, page: p, pageSize: 100 },
+    });
+  }
+  stubFetch(routes);
+  const r = await setup().get('preview_delete').handler({ status: 'rejected' });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /501.*at most 500/);
+});
+
 test('confirm_delete refuses when the status set changed since preview', async () => {
   let ids = [1, 2];
   const calls = stubFetch({

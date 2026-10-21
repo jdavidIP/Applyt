@@ -26,6 +26,7 @@ const PLATFORMS = ['indeed', 'linkedin', 'glassdoor', 'manual'] as const;
 const STATUSES = ['applied', 'pending_confirmation', 'interviewing', 'rejected', 'offer', 'ghosted', 'stale'] as const;
 const MODALITIES = ['on_site', 'hybrid', 'remote'] as const;
 const LIST_PAGE_MAX = 100; // GET /applications caps pageSize at 100
+const BULK_DELETE_MAX = 500; // POST /applications/bulk-delete caps ids at 500
 
 interface AppRow {
   id: number;
@@ -218,7 +219,7 @@ export function buildTools(client: BackendClient, tokens: DeleteTokenStore): Too
       description:
         'Step 1 of deleting applications. Pass either ids or a status (not both). Deletes nothing: returns the matching applications and a confirmation token. Show the list to the user, then call confirm_delete with the token and the count.',
       inputSchema: z.object({
-        ids: z.array(z.number().int().min(1)).min(1).max(500).optional(),
+        ids: z.array(z.number().int().min(1)).min(1).max(BULK_DELETE_MAX).optional(),
         status: z.enum(STATUSES).optional(),
       }),
       annotations: { readOnlyHint: true },
@@ -229,6 +230,11 @@ export function buildTools(client: BackendClient, tokens: DeleteTokenStore): Too
             ? await idsForStatus(status)
             : await Promise.all([...new Set<number>(ids)].map((id) => client.request<AppRow>('GET', `/applications/${id}`)));
           if (rows.length === 0) return ok('No matching applications — nothing to delete.');
+          if (rows.length > BULK_DELETE_MAX) {
+            return fail(
+              `${rows.length} applications match, but one delete can remove at most ${BULK_DELETE_MAX} — narrow it down by passing specific ids in batches.`,
+            );
+          }
           const token = tokens.issue(rows.map((r) => r.id), status ? { kind: 'status', status } : { kind: 'ids' });
           const applications = rows
             .map(({ id, company, title, status: s }) => ({ id, company, title, status: s }))
