@@ -15,6 +15,7 @@ import type {
   KnownPricingResponse,
   ExtractResumeTextResponse,
   ResumeDownloadFormat,
+  AttachmentKind,
   AiProvider,
   PaginatedApplications,
 } from '../types';
@@ -167,14 +168,32 @@ export const api = {
     return (await res.json()) as ExtractResumeTextResponse;
   },
 
+  // Attach the user's own resume/cover letter files as a new 'file' version.
+  // Bypasses request() for the same multipart-boundary reason as above.
+  uploadResumeFiles: async (
+    applicationId: number,
+    files: { kind: AttachmentKind; file: File }[],
+  ): Promise<ResumeVersion> => {
+    const form = new FormData();
+    for (const { kind, file } of files) form.append(kind, file);
+    const res = await fetch(`${API_BASE}/applications/${applicationId}/resume-versions/files`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${await errorDetail(res)}`);
+    return (await res.json()) as ResumeVersion;
+  },
+
   // Bypasses request(): the response is a binary file, not JSON.
   downloadResumeVersion: async (
     applicationId: number,
     versionId: number,
     format: ResumeDownloadFormat,
+    kind: AttachmentKind = 'resume',
   ): Promise<Blob> => {
+    const kindParam = kind === 'resume' ? '' : `&kind=${kind}`;
     const res = await fetch(
-      `${API_BASE}/applications/${applicationId}/resume-versions/${versionId}/download?format=${format}`,
+      `${API_BASE}/applications/${applicationId}/resume-versions/${versionId}/download?format=${format}${kindParam}`,
     );
     if (!res.ok) throw new Error(`${res.status}: ${await errorDetail(res)}`);
     return res.blob();

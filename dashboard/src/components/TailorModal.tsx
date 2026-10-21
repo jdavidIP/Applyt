@@ -11,6 +11,7 @@ import {
   IconSparkles,
   IconBulb,
   IconLoader2,
+  IconUpload,
 } from "@tabler/icons-react";
 import { api } from "../services/api";
 import { formatDate } from "../lib/labels";
@@ -26,6 +27,7 @@ import type {
   ResumeVersion,
   TailorEstimate,
   ResumeDownloadFormat,
+  AttachmentKind,
 } from "../types";
 import type { CoverLetter } from "../types/resumeSchema";
 import { Modal } from "./Modal";
@@ -138,9 +140,14 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [estimate, setEstimate] = useState<TailorEstimate | null>(null);
-  const [downloading, setDownloading] = useState<ResumeDownloadFormat | null>(
-    null,
-  );
+  // "<kind>-<format>" of the download in flight, e.g. "resume-pdf".
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<
+    Record<AttachmentKind, File[]>
+  >({ resume: [], cover_letter: [] });
+  const [uploading, setUploading] = useState(false);
+  // Bumped after an upload to reset the (uncontrolled) file inputs.
+  const [uploadKey, setUploadKey] = useState(0);
   const [includeMatchRating, setIncludeMatchRating] = useState(true);
   const [includeSuggestions, setIncludeSuggestions] = useState(true);
   const [targetOnePage, setTargetOnePage] = useState(true);
@@ -162,6 +169,16 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   }, [optionsOpen]);
 
   const hasJobDescription = Boolean(application.job_description?.trim());
+  const isFileVersion = selected?.ai_provider === "file";
+  // Generated versions render any format on demand; file versions only have
+  // the formats that were actually attached (txt is the extracted text).
+  const hasFormat = (kind: AttachmentKind, format: ResumeDownloadFormat) =>
+    !isFileVersion ||
+    format === "txt" ||
+    Boolean(selected?.files.some((f) => f.kind === kind && f.format === format));
+  const coverLetterFiles = isFileVersion
+    ? (selected?.files.filter((f) => f.kind === "cover_letter") ?? [])
+    : [];
 
   // Parse the raw stored output into its four sections for display. Handles
   // both the current marker-delimited format and older pre-structured rows.
@@ -274,17 +291,28 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
   // Renders the stored version on demand into the requested format (server
   // side, resumeRender.ts) — every past or present version is downloadable
   // in any format, not just whatever was chosen when it was generated.
-  async function handleDownload(format: ResumeDownloadFormat) {
+  // File versions (the user's own attached files) download byte-for-byte
+  // under their original filename instead.
+  async function handleDownload(
+    format: ResumeDownloadFormat,
+    kind: AttachmentKind = "resume",
+  ) {
     if (!selected) return;
-    setDownloading(format);
+    setDownloading(`${kind}-${format}`);
     setError(null);
     try {
       const blob = await api.downloadResumeVersion(
         application.id,
         selected.id,
         format,
+        kind,
       );
-      const filename = `${sanitizeFilenamePart(application.company)}-${sanitizeFilenamePart(application.title)}-resume.${format}`;
+      const attached = selected.files.find(
+        (f) => f.kind === kind && f.format === format,
+      );
+      const filename =
+        attached?.filename ??
+        `${sanitizeFilenamePart(application.company)}-${sanitizeFilenamePart(application.title)}-resume.${format}`;
       triggerBlobDownload(blob, filename);
     } catch (err) {
       setError(
@@ -294,6 +322,27 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
       );
     } finally {
       setDownloading(null);
+    }
+  }
+
+  async function handleUpload() {
+    const files = (["resume", "cover_letter"] as const).flatMap((kind) =>
+      uploadFiles[kind].map((file) => ({ kind, file })),
+    );
+    if (files.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const version = await api.uploadResumeFiles(application.id, files);
+      setVersions((prev) => [version, ...prev]);
+      setSelected(version);
+      setUploadFiles({ resume: [], cover_letter: [] });
+      setUploadKey((k) => k + 1);
+      onTailored();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload files.");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -436,6 +485,40 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
         )}
       </div>
 
+      <div
+        key={uploadKey}
+        className="flex flex-wrap items-center gap-3 mt-4 text-[12px] text-ink-soft"
+      >
+        <span>Or attach your own files (PDF/Word, kept exactly as-is):</span>
+        {(["resume", "cover_letter"] as const).map((kind) => (
+          <label key={kind} className="flex items-center gap-1.5">
+            {kind === "resume" ? "Resume" : "Cover letter"}
+            <input
+              type="file"
+              accept=".pdf,.docx"
+              multiple
+              className="text-[11px] max-w-[190px]"
+              onChange={(e) => {
+                const chosen = Array.from(e.target.files ?? []);
+                setUploadFiles((prev) => ({ ...prev, [kind]: chosen }));
+              }}
+            />
+          </label>
+        ))}
+        <button
+          type="button"
+          className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-55"
+          onClick={() => void handleUpload()}
+          disabled={
+            uploading ||
+            uploadFiles.resume.length + uploadFiles.cover_letter.length === 0
+          }
+        >
+          <IconUpload size={14} />
+          {uploading ? "Uploading…" : "Upload"}
+        </button>
+      </div>
+
       {error && <p className="text-rose-800 text-[13px] mt-3">{error}</p>}
 
       {selected && sections && (
@@ -446,7 +529,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                 {selected.ai_provider} · {formatDate(selected.created_at)}
               </span>
               <span className="text-[10px] text-ink-soft">
-                {usageSummary(selected)}
+                {isFileVersion ? "Uploaded file" : usageSummary(selected)}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -466,15 +549,44 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
                     type="button"
                     className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-55"
                     onClick={() => void handleDownload(format)}
-                    disabled={downloading !== null}
+                    disabled={downloading !== null || !hasFormat("resume", format)}
+                    title={
+                      hasFormat("resume", format)
+                        ? undefined
+                        : `No ${label} file was attached to this version`
+                    }
                   >
                     <Icon size={14} />
-                    {downloading === format ? "…" : label}
+                    {downloading === `resume-${format}` ? "…" : label}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {coverLetterFiles.length > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-[11px] font-medium text-ink-soft uppercase tracking-wider mr-1">
+                Cover letter
+              </span>
+              {coverLetterFiles.map((f) => {
+                const { label, icon: Icon } = DOWNLOAD_META[f.format];
+                return (
+                  <button
+                    key={f.format}
+                    type="button"
+                    className="btn-secondary flex items-center gap-1.5 px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-55"
+                    onClick={() => void handleDownload(f.format, "cover_letter")}
+                    disabled={downloading !== null}
+                    title={f.filename}
+                  >
+                    <Icon size={14} />
+                    {downloading === `cover_letter-${f.format}` ? "…" : label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {(sections.matchRating !== null || sections.matchJustification) && (
             <div className="card p-4 flex flex-col gap-3">
@@ -491,7 +603,7 @@ export function TailorModal({ application, onClose, onTailored }: Props) {
 
           <div className="flex flex-col gap-2">
             <label className="text-[11px] font-medium text-ink-soft uppercase tracking-wider">
-              Tailored resume
+              {isFileVersion ? "Resume text (from your file)" : "Tailored resume"}
             </label>
             <textarea
               readOnly
