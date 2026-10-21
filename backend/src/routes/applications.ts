@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyPluginOptions } from "fastify";
+import multipart from "@fastify/multipart";
 import type Database from "better-sqlite3";
 import type {
   Application,
@@ -14,7 +15,12 @@ import type {
   TailorEstimate,
   ResumeDownloadFormat,
   TailorRequestBody,
+  AttachmentKind,
+  AttachmentFormat,
+  ResumeVersionFileSummary,
+  ResumeVersionWithFiles,
 } from "../types/index.js";
+import { ATTACHMENT_KINDS } from "../types/index.js";
 import {
   createApplicationSchema,
   updateApplicationSchema,
@@ -47,6 +53,12 @@ import {
   type TailorResponseEnvelope,
 } from "../types/resumeSchema.js";
 import { findEnvelopeError } from "../resume/envelopeValidation.js";
+import { extractResumeText } from "../resume/resumeExtract.js";
+import {
+  detectFileFormat,
+  FORMAT_MIME,
+  MAX_ATTACHMENT_BYTES,
+} from "../resume/fileFormat.js";
 import { buildApplicationsWorkbook } from "../export/xlsxExport.js";
 import { buildApplicationsReport } from "../export/csvExport.js";
 import {
@@ -65,6 +77,13 @@ export default async function applicationsRoutes(
   opts: RoutesOptions,
 ): Promise<void> {
   const { db, settings } = opts;
+
+  // Scoped to this plugin (Fastify encapsulation): attachment uploads get their
+  // own limits without touching the settings route's 10MB / 1-file setup.
+  await fastify.register(multipart, {
+    limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 4 },
+    throwFileSizeLimit: true,
+  });
 
   // applications.resume_version_id was removed (redundant with
   // resume_versions.application_id, and created a circular FK between the two
@@ -95,6 +114,10 @@ export default async function applicationsRoutes(
   const deleteApplicationsCascade = db.transaction((ids: number[]): number => {
     const placeholders = ids.map(() => "?").join(",");
     db.prepare(
+      `DELETE FROM resume_version_files WHERE resume_version_id IN
+         (SELECT id FROM resume_versions WHERE application_id IN (${placeholders}))`,
+    ).run(...ids);
+    db.prepare(
       `DELETE FROM cover_letters WHERE application_id IN (${placeholders})`,
     ).run(...ids);
     db.prepare(
@@ -104,6 +127,26 @@ export default async function applicationsRoutes(
       .prepare(`DELETE FROM applications WHERE id IN (${placeholders})`)
       .run(...ids).changes;
   });
+
+  // Attaches each version's file summaries (never the blob data) — empty for
+  // generated versions.
+  function withFiles(versions: ResumeVersion[]): ResumeVersionWithFiles[] {
+    if (versions.length === 0) return [];
+    const rows = db
+      .prepare(
+        `SELECT resume_version_id, kind, format, filename, size FROM resume_version_files
+         WHERE resume_version_id IN (${versions.map(() => "?").join(",")}) ORDER BY id`,
+      )
+      .all(...versions.map((v) => v.id)) as (ResumeVersionFileSummary & {
+      resume_version_id: number;
+    })[];
+    return versions.map((v) => ({
+      ...v,
+      files: rows
+        .filter((r) => r.resume_version_id === v.id)
+        .map(({ kind, format, filename, size }) => ({ kind, format, filename, size })),
+    }));
+  }
 
   // The one place a resume_versions row (plus its optional cover_letters
   // row) gets written, shared by /tailor and the MCP save route so the two
@@ -813,11 +856,127 @@ export default async function applicationsRoutes(
     "/applications/:id/resume-versions",
     { schema: { params: idParamSchema } },
     async (request) => {
-      return db
+      const versions = db
         .prepare(
           "SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC",
         )
         .all(request.params.id) as ResumeVersion[];
+      return withFiles(versions);
+    },
+  );
+
+  // POST /applications/:id/resume-versions/files — attach the user's own
+  // resume and/or cover letter (PDF/DOCX, at most one per kind+format) as a
+  // new 'file' resume version. Bytes are stored untouched and the format comes
+  // from the content, never the filename. Every part is read and validated
+  // before anything is written, so a bad upload leaves no partial version.
+  fastify.post<{ Params: { id: number } }>(
+    "/applications/:id/resume-versions/files",
+    { schema: { params: idParamSchema } },
+    async (request, reply) => {
+      const app = getApplicationById(request.params.id);
+      if (!app) return reply.code(404).send({ error: "Application not found" });
+
+      const parts: { field: string; filename: string; data: Buffer }[] = [];
+      try {
+        for await (const part of request.files()) {
+          parts.push({
+            field: part.fieldname,
+            filename: part.filename,
+            data: await part.toBuffer(),
+          });
+        }
+      } catch (err) {
+        if (err instanceof fastify.multipartErrors.RequestFileTooLargeError) {
+          return reply.code(413).send({
+            error: `File is too large (max ${MAX_ATTACHMENT_BYTES / (1024 * 1024)}MB).`,
+          });
+        }
+        if (err instanceof fastify.multipartErrors.FilesLimitError) {
+          return reply
+            .code(400)
+            .send({ error: "At most 4 files can be attached at once." });
+        }
+        throw err;
+      }
+
+      if (parts.length === 0) {
+        return reply.code(400).send({ error: "No files uploaded." });
+      }
+      const files: {
+        kind: AttachmentKind;
+        format: AttachmentFormat;
+        filename: string;
+        data: Buffer;
+      }[] = [];
+      for (const p of parts) {
+        if (!(ATTACHMENT_KINDS as readonly string[]).includes(p.field)) {
+          return reply.code(400).send({
+            error: `Unknown file field "${p.field}" — use "resume" or "cover_letter".`,
+          });
+        }
+        const kind = p.field as AttachmentKind;
+        if (p.data.length === 0) {
+          return reply
+            .code(400)
+            .send({ error: `The ${kind} file "${p.filename}" is empty.` });
+        }
+        const format = detectFileFormat(p.data);
+        if (!format) {
+          return reply.code(400).send({
+            error: `"${p.filename}" is an unsupported type — attach a PDF or Word (.docx) file.`,
+          });
+        }
+        if (files.some((f) => f.kind === kind && f.format === format)) {
+          return reply.code(400).send({
+            error: `More than one ${kind} ${format} file — attach at most one of each.`,
+          });
+        }
+        files.push({ kind, format, filename: p.filename, data: p.data });
+      }
+
+      // Preview text only (dashboard/popup/MCP); the files themselves are what
+      // matter, so an unreadable file (e.g. a scanned PDF) still saves.
+      const source = [
+        ["resume", "pdf"],
+        ["resume", "docx"],
+        ["cover_letter", "pdf"],
+        ["cover_letter", "docx"],
+      ]
+        .map(([k, f]) => files.find((x) => x.kind === k && x.format === f))
+        .find(Boolean)!;
+      let text = "";
+      try {
+        text = await extractResumeText(source.data, FORMAT_MIME[source.format]);
+      } catch {
+        // fall through to the placeholder
+      }
+      if (!text.trim()) text = "(Text could not be extracted from this file.)";
+
+      const now = new Date().toISOString();
+      const versionId = db.transaction(() => {
+        const { lastInsertRowid } = db
+          .prepare(
+            `INSERT INTO resume_versions (application_id, tailored_output, ai_provider, created_at)
+             VALUES (?, ?, 'file', ?)`,
+          )
+          .run(app.id, text, now);
+        const insertFile = db.prepare(
+          `INSERT INTO resume_version_files
+             (resume_version_id, kind, format, filename, size, data, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const f of files) {
+          insertFile.run(lastInsertRowid, f.kind, f.format, f.filename, f.data.length, f.data, now);
+        }
+        db.prepare("UPDATE applications SET updated_at = ? WHERE id = ?").run(now, app.id);
+        return lastInsertRowid;
+      })();
+
+      const version = db
+        .prepare("SELECT * FROM resume_versions WHERE id = ?")
+        .get(versionId) as ResumeVersion;
+      return reply.code(201).send(withFiles([version])[0]);
     },
   );
 
