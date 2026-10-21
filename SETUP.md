@@ -149,7 +149,7 @@ replicate it outside Docker.
 ### Running tests
 
 ```bash
-npm test        # backend (node:test) + dashboard (Vitest)
+npm test        # backend + mcp (node:test) + dashboard (Vitest)
 ```
 
 The extension has no automated test suite — its content scripts are verified via
@@ -180,6 +180,54 @@ pick up changes.
 
 ---
 
+## Connect Claude (MCP server, optional)
+
+Lets Claude Desktop or Claude Code read your saved applications, answer questions
+about them, tailor resumes for them (using your Claude plan — no API key), and
+add, update, or delete entries. The MCP server is a small local process the
+Claude app starts on demand; it talks to the same backend as the dashboard and
+never touches the database file directly.
+
+1. Build it once: `npm install && npm run build --workspace mcp`
+2. Keep the Applyt backend running (`npm run dev` or `docker compose up`).
+3. Register it:
+   - **Claude Code:** `claude mcp add applyt -- node /absolute/path/to/Applyt/mcp/dist/index.js`
+   - **Claude Desktop:** Settings → Developer → **Edit Config** (this opens the
+     right file for your install), then add the block below to
+     `claude_desktop_config.json`. The file normally lives at
+     `%APPDATA%\Claude\` (Windows) or `~/Library/Application Support/Claude/`
+     (macOS); the Microsoft Store build keeps it elsewhere (e.g.
+     `%LOCALAPPDATA%\Claude-Data\claude_<id>\`), which is why Edit Config is the
+     safe way to find it. Desktop also stores its own preferences in this file —
+     add the `mcpServers` key alongside them rather than replacing the file.
+     If Claude reports the server failed to start, replace `"node"` with the full
+     path to your Node binary (`where node` / `which node`) — desktop apps don't
+     always inherit your terminal's `PATH`.
+     ```json
+     {
+       "mcpServers": {
+         "applyt": {
+           "command": "node",
+           "args": ["C:\\path\\to\\Applyt\\mcp\\dist\\index.js"]
+         }
+       }
+     }
+     ```
+     Restart Claude Desktop.
+4. Backend on a non-default port? Add `"env": { "APPLYT_URL": "http://localhost:<port>" }`
+   to the Desktop entry, or pass `-e APPLYT_URL=http://localhost:<port>` to
+   `claude mcp add` (before the `--`).
+
+Docker users: same steps — the MCP server runs on your machine and reaches the
+backend container through the published port 4317.
+
+Deletes are two-step: Claude has to preview a delete (seeing exactly which
+applications match) and then confirm it with the matching count. Keep your
+Claude app's approval prompt on for `confirm_delete` — that prompt is the real
+safeguard, and deletes cannot be undone.
+
+---
+
 ## Configuration reference
 
 | Variable            | Where     | Default                         | Purpose                                          |
@@ -192,6 +240,7 @@ pick up changes.
 | `ANTHROPIC_API_KEY`  | backend   | —                                 | Overrides the stored Anthropic key, if set         |
 | `OPENAI_API_KEY`     | backend   | —                                 | Overrides the stored OpenAI key, if set            |
 | `OLLAMA_BASE_URL`    | backend   | `http://localhost:11434`         | Overrides the stored Ollama server URL, if set     |
+| `APPLYT_URL`         | mcp       | `http://localhost:4317`          | Backend URL the MCP server calls                   |
 | `VITE_API_BASE`      | dashboard | `/api` (proxied)                 | Backend base URL the dashboard calls               |
 
 Your data lives in a single SQLite file (`backend/data/applications.db`, or the
@@ -217,3 +266,10 @@ Your data lives in a single SQLite file (`backend/data/applications.db`, or the
 - **Port already in use.** Set `PORT` (backend) or change the dashboard's Vite
   dev port in `dashboard/vite.config.ts` (manual setup), or edit the `ports:`
   mappings in `docker-compose.yml` (Docker setup).
+- **Claude says the Applyt backend "isn't reachable".** The MCP server started
+  fine but can't reach the backend — start it (`npm run dev` or
+  `docker compose up`), or set `APPLYT_URL` if it isn't on port 4317.
+- **`applyt` doesn't show up in Claude at all.** Check the path in your
+  `claude mcp add` / Desktop config points at `mcp/dist/index.js` (absolute
+  path) and that you ran `npm run build --workspace mcp`. In Claude Code,
+  `/mcp` shows each server's connection status.

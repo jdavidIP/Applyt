@@ -138,6 +138,10 @@ export interface BulkDeleteQuery {
   status: Status;
 }
 
+export interface BulkDeleteIdsBody {
+  ids: number[];
+}
+
 export interface WeeklyCount {
   weekStart: string; // ISO date (Monday) the week bucket starts on
   count: number;

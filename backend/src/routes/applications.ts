@@ -7,6 +7,7 @@ import type {
   ListApplicationsQuery,
   MarkStaleBody,
   BulkDeleteQuery,
+  BulkDeleteIdsBody,
   StatsResponse,
   DailyStatsQuery,
   ResumeVersion,
@@ -22,6 +23,7 @@ import {
   idParamSchema,
   markStaleSchema,
   bulkDeleteQuerySchema,
+  bulkDeleteIdsSchema,
   resumeVersionParamSchema,
   resumeDownloadQuerySchema,
 } from "../validation.js";
@@ -40,6 +42,11 @@ import {
   computePerDay,
   type AppVersionInfo,
 } from "../export/reportData.js";
+import {
+  type CoverLetter,
+  type TailorResponseEnvelope,
+} from "../types/resumeSchema.js";
+import { findEnvelopeError } from "../resume/envelopeValidation.js";
 import { buildApplicationsWorkbook } from "../export/xlsxExport.js";
 import { buildApplicationsReport } from "../export/csvExport.js";
 import {
@@ -79,6 +86,83 @@ export default async function applicationsRoutes(
     return row
       ? { ...row, has_resume_version: !!row.has_resume_version }
       : undefined;
+  }
+
+  // cover_letters references both applications(id) and resume_versions(id)
+  // with no ON DELETE CASCADE (and db.ts enables foreign_keys), so its rows
+  // must go first, then resume_versions, then the applications themselves.
+  // Shared by every delete path so none of them can forget a table.
+  const deleteApplicationsCascade = db.transaction((ids: number[]): number => {
+    const placeholders = ids.map(() => "?").join(",");
+    db.prepare(
+      `DELETE FROM cover_letters WHERE application_id IN (${placeholders})`,
+    ).run(...ids);
+    db.prepare(
+      `DELETE FROM resume_versions WHERE application_id IN (${placeholders})`,
+    ).run(...ids);
+    return db
+      .prepare(`DELETE FROM applications WHERE id IN (${placeholders})`)
+      .run(...ids).changes;
+  });
+
+  // The one place a resume_versions row (plus its optional cover_letters
+  // row) gets written, shared by /tailor and the MCP save route so the two
+  // persistence paths can't drift.
+  function insertResumeVersion(row: {
+    applicationId: number;
+    baseResume: string | null;
+    output: string;
+    provider: string;
+    model: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    cost: number | null;
+    inputCharLength: number | null;
+    coverLetter: CoverLetter | null;
+  }): ResumeVersion {
+    const now = new Date().toISOString();
+    const insert = db.transaction(() => {
+      const info = db
+        .prepare(
+          `INSERT INTO resume_versions
+             (application_id, base_resume_snapshot, tailored_output, ai_provider,
+              model, input_tokens, output_tokens, cost, input_char_length, created_at)
+           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider,
+              @model, @input_tokens, @output_tokens, @cost, @input_char_length, @created_at)`,
+        )
+        .run({
+          application_id: row.applicationId,
+          base_resume_snapshot: row.baseResume,
+          tailored_output: row.output,
+          ai_provider: row.provider,
+          model: row.model,
+          input_tokens: row.inputTokens,
+          output_tokens: row.outputTokens,
+          cost: row.cost,
+          input_char_length: row.inputCharLength,
+          created_at: now,
+        });
+      if (row.coverLetter) {
+        db.prepare(
+          `INSERT INTO cover_letters
+             (application_id, resume_version_id, tailored_output, created_at)
+           VALUES (@application_id, @resume_version_id, @tailored_output, @created_at)`,
+        ).run({
+          application_id: row.applicationId,
+          resume_version_id: info.lastInsertRowid,
+          tailored_output: JSON.stringify(row.coverLetter),
+          created_at: now,
+        });
+      }
+      db.prepare(
+        "UPDATE applications SET updated_at = @now WHERE id = @id",
+      ).run({ now, id: row.applicationId });
+      return info.lastInsertRowid;
+    });
+    const id = insert();
+    return db
+      .prepare("SELECT * FROM resume_versions WHERE id = ?")
+      .get(id) as ResumeVersion;
   }
 
   // GET /applications — list with optional platform/status filter, sort, and
@@ -309,10 +393,43 @@ export default async function applicationsRoutes(
     "/applications",
     { schema: { querystring: bulkDeleteQuerySchema } },
     async (request) => {
-      const info = db
-        .prepare("DELETE FROM applications WHERE status = ?")
-        .run(request.query.status);
-      return { deleted: info.changes };
+      const ids = (
+        db
+          .prepare("SELECT id FROM applications WHERE status = ?")
+          .all(request.query.status) as { id: number }[]
+      ).map((r) => r.id);
+      const deleted = ids.length ? deleteApplicationsCascade(ids) : 0;
+      return { deleted };
+    },
+  );
+
+  // POST /applications/bulk-delete — delete an explicit set of ids, all or
+  // nothing. A separate POST route rather than a body on DELETE
+  // /applications, which already exists for delete-by-status and requires
+  // ?status=. The MCP server's confirm_delete is the caller: if any id has
+  // vanished since its preview (e.g. deleted from the dashboard), refuse the
+  // whole batch rather than delete a set the user never saw.
+  fastify.post<{ Body: BulkDeleteIdsBody }>(
+    "/applications/bulk-delete",
+    { schema: { body: bulkDeleteIdsSchema } },
+    async (request, reply) => {
+      const ids = [...new Set(request.body.ids)];
+      const placeholders = ids.map(() => "?").join(",");
+      const existing = new Set(
+        (
+          db
+            .prepare(`SELECT id FROM applications WHERE id IN (${placeholders})`)
+            .all(...ids) as { id: number }[]
+        ).map((r) => r.id),
+      );
+      const missingIds = ids.filter((id) => !existing.has(id));
+      if (missingIds.length) {
+        return reply.code(404).send({
+          error: `Applications not found: ${missingIds.join(", ")}`,
+          missingIds,
+        });
+      }
+      return { deleted: deleteApplicationsCascade(ids) };
     },
   );
 
@@ -466,21 +583,8 @@ export default async function applicationsRoutes(
     "/applications/:id",
     { schema: { params: idParamSchema } },
     async (request, reply) => {
-      const id = request.params.id;
-      // cover_letters references both applications(id) and
-      // resume_versions(id) with no ON DELETE CASCADE, so its rows must go
-      // first, then resume_versions, then the application itself.
-      const deleteApplication = db.transaction(() => {
-        db.prepare("DELETE FROM cover_letters WHERE application_id = ?").run(
-          id,
-        );
-        db.prepare("DELETE FROM resume_versions WHERE application_id = ?").run(
-          id,
-        );
-        return db.prepare("DELETE FROM applications WHERE id = ?").run(id);
-      });
-      const info = deleteApplication();
-      if (info.changes === 0)
+      const deleted = deleteApplicationsCascade([request.params.id]);
+      if (deleted === 0)
         return reply.code(404).send({ error: "Application not found" });
       return reply.code(204).send();
     },
@@ -681,55 +785,24 @@ export default async function applicationsRoutes(
               (usage.outputTokens / 1_000_000) * price.outputPerMillion
             : null;
 
-      const now = new Date().toISOString();
-      const info = db
-        .prepare(
-          `INSERT INTO resume_versions
-             (application_id, base_resume_snapshot, tailored_output, ai_provider,
-              model, input_tokens, output_tokens, cost, input_char_length, created_at)
-           VALUES (@application_id, @base_resume_snapshot, @tailored_output, @ai_provider,
-              @model, @input_tokens, @output_tokens, @cost, @input_char_length, @created_at)`,
-        )
-        .run({
-          application_id: app.id,
-          base_resume_snapshot: baseResume,
-          tailored_output: output,
-          ai_provider: cfg.provider,
-          model: cfg.model,
-          input_tokens: usage.inputTokens,
-          output_tokens: usage.outputTokens,
-          cost,
-          input_char_length: baseResume.length + jobDescription.length,
-          created_at: now,
-        });
-
       // Only persist a cover_letters row when one was actually requested AND
       // the model returned something coerceCoverLetter accepts — a run that
       // was asked for a cover letter but produced nothing parseable isn't
       // worth a broken/empty row.
-      if (includeCoverLetter) {
-        const { coverLetter } = parseTailoredResume(output);
-        if (coverLetter) {
-          db.prepare(
-            `INSERT INTO cover_letters
-               (application_id, resume_version_id, tailored_output, created_at)
-             VALUES (@application_id, @resume_version_id, @tailored_output, @created_at)`,
-          ).run({
-            application_id: app.id,
-            resume_version_id: info.lastInsertRowid,
-            tailored_output: JSON.stringify(coverLetter),
-            created_at: now,
-          });
-        }
-      }
-
-      db.prepare(
-        "UPDATE applications SET updated_at = @now WHERE id = @id",
-      ).run({ now, id: app.id });
-
-      const created = db
-        .prepare("SELECT * FROM resume_versions WHERE id = ?")
-        .get(info.lastInsertRowid) as ResumeVersion;
+      const created = insertResumeVersion({
+        applicationId: app.id,
+        baseResume,
+        output,
+        provider: cfg.provider,
+        model: cfg.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cost,
+        inputCharLength: baseResume.length + jobDescription.length,
+        coverLetter: includeCoverLetter
+          ? (parseTailoredResume(output).coverLetter ?? null)
+          : null,
+      });
       return reply.code(201).send(created);
     },
   );
@@ -745,6 +818,38 @@ export default async function applicationsRoutes(
           "SELECT * FROM resume_versions WHERE application_id = ? ORDER BY created_at DESC, id DESC",
         )
         .all(request.params.id) as ResumeVersion[];
+    },
+  );
+
+  // POST /applications/:id/resume-versions — save a tailored resume written
+  // elsewhere (the MCP server: Claude itself does the tailoring, so there is
+  // no provider call, token usage, or cost). Stored in the same envelope
+  // format /tailor writes, so TailorModal and every download format work
+  // unchanged. Validated strictly (findEnvelopeError) so the caller learns
+  // exactly which field to fix instead of having entries silently dropped.
+  fastify.post<{ Params: { id: number }; Body: TailorResponseEnvelope }>(
+    "/applications/:id/resume-versions",
+    { schema: { params: idParamSchema } },
+    async (request, reply) => {
+      const app = getApplicationById(request.params.id);
+      if (!app) return reply.code(404).send({ error: "Application not found" });
+      const error = findEnvelopeError(request.body);
+      if (error) return reply.code(400).send({ error });
+
+      const envelope = request.body;
+      const created = insertResumeVersion({
+        applicationId: app.id,
+        baseResume: settings.read().baseResume.trim() || null,
+        output: JSON.stringify(envelope),
+        provider: "mcp",
+        model: null,
+        inputTokens: null,
+        outputTokens: null,
+        cost: 0,
+        inputCharLength: null,
+        coverLetter: envelope.coverLetter ?? null,
+      });
+      return reply.code(201).send(created);
     },
   );
 

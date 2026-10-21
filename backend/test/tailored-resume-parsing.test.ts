@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseTailoredResume, flattenStructuredResume, parseTailorRejection } from '../src/resume/tailoredResume.ts';
+import { findEnvelopeError } from '../src/resume/envelopeValidation.ts';
 
 const MINIMAL_ENVELOPE = {
   resume: {
@@ -192,4 +193,58 @@ test('flattenStructuredResume renders sections in order and skips empty ones', (
   assert.doesNotMatch(flat, /PROJECTS/);
   assert.doesNotMatch(flat, /EDUCATION/);
   assert.doesNotMatch(flat, /TECHNICAL SKILLS/);
+});
+
+// ---- findEnvelopeError (strict validation for POST /:id/resume-versions) ----
+
+const validResume = {
+  contact: { name: 'Jane Doe', email: 'jane@example.com' },
+  summary: 'Engineer.',
+  experience: [
+    { title: 'Engineer', company: 'Acme', startDate: 'Jan 2022', endDate: 'Present', bullets: ['Built things'] },
+  ],
+  education: [{ institution: 'State U', degree: 'BSc CS', dates: '2018 - 2022' }],
+  skills: [{ label: 'Languages', items: ['TypeScript'] }],
+};
+
+test('findEnvelopeError accepts a valid envelope', () => {
+  assert.equal(findEnvelopeError({ resume: validResume }), null);
+  assert.equal(
+    findEnvelopeError({
+      resume: validResume,
+      matchRating: 4,
+      matchJustification: ['Strong TS'],
+      suggestions: ['Mention AWS'],
+      coverLetter: {
+        contact: { name: 'Jane Doe' },
+        date: 'Oct 19, 2026',
+        header: { recipient: 'Hiring Team', company: 'Acme' },
+        body: 'Para one.\n\nPara two.',
+        footer: 'Sincerely, Jane Doe',
+      },
+    }),
+    null,
+  );
+});
+
+test('findEnvelopeError names the first offending path', () => {
+  const cases: [unknown, string][] = [
+    [null, 'body'],
+    [{}, 'resume'],
+    [{ resume: { ...validResume, contact: { name: '' } } }, 'resume.contact.name'],
+    [{ resume: { ...validResume, experience: 'x' } }, 'resume.experience'],
+    [
+      { resume: { ...validResume, experience: [{ ...validResume.experience[0], bullets: 'one\ntwo' }] } },
+      'resume.experience[0].bullets',
+    ],
+    [{ resume: { ...validResume, skills: [{ label: 'L', items: [1] }] } }, 'resume.skills[0].items'],
+    [{ resume: validResume, matchRating: 6 }, 'matchRating'],
+    [{ resume: validResume, matchRating: 2.5 }, 'matchRating'],
+    [{ resume: validResume, suggestions: 'x' }, 'suggestions'],
+    [{ resume: validResume, coverLetter: { contact: { name: 'J' } } }, 'coverLetter.header'],
+  ];
+  for (const [input, path] of cases) {
+    const err = findEnvelopeError(input);
+    assert.ok(err?.startsWith(path), `expected error starting with "${path}", got ${err}`);
+  }
 });

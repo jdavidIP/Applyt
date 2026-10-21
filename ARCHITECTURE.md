@@ -7,32 +7,35 @@ For "how do I run this," see [`SETUP.md`](./SETUP.md).
 ## The shape of the system
 
 ```
-┌─────────────────────┐        ┌─────────────────────┐
-│  Browser extension   │        │      Dashboard        │
-│  (content scripts +  │        │  (React + Vite SPA)   │
-│  background worker)  │        │                        │
-└──────────┬───────────┘        └───────────┬────────────┘
-           │ POST /applications              │ GET/PATCH/DELETE
-           │ (auto-capture + manual mark)     │ /applications, /settings, ...
-           └───────────────┬───────────────────┘
-                            │
-                   ┌────────▼─────────┐
-                   │   Local backend   │
-                   │  (Fastify + TS)   │
-                   └────────┬──────────┘
-                            │
-                  ┌─────────┴──────────┐
-                  │   SQLite (single    │
-                  │   file on disk)     │
-                  └──────────────────────┘
+┌────────────────────┐   ┌────────────────────┐   ┌───────────────────────┐
+│ Browser extension  │   │ Dashboard          │   │ MCP server            │
+│ (content scripts + │   │ (React + Vite SPA) │   │ (optional; spawned by │
+│ background worker) │   │                    │   │ Claude Desktop/Code)  │
+└──────────┬─────────┘   └──────────┬─────────┘   └───────────┬───────────┘
+           │ POST /applications     │ GET/PATCH/DELETE        │ same HTTP API
+           │ (auto-capture +        │ /applications,          │ (read, save tailored
+           │  manual mark)          │ /settings, ...          │  resume, add/edit/delete)
+           └────────────────────────┼─────────────────────────┘
+                          ┌─────────▼─────────┐
+                          │   Local backend   │
+                          │  (Fastify + TS)   │
+                          └─────────┬─────────┘
+                                    │
+                         ┌──────────┴─────────┐
+                         │   SQLite (single   │
+                         │   file on disk)    │
+                         └────────────────────┘
 ```
 
-Everything runs on the user's own machine. The extension and the dashboard are two
-different front ends for the **same backend on the same port** — there is
+Everything runs on the user's own machine. The extension, the dashboard, and the
+optional MCP server are different front ends for the **same backend on the same port** — there is
 deliberately only one storage path (see CLAUDE.md §2). Nothing here talks to a
 server we operate; the only outbound network call the backend ever makes is the
 AI tailoring request to the user's own configured provider — Anthropic, OpenAI (using
 a key that never leaves their machine), or a local/LAN Ollama server (no key at all).
+The MCP server makes no outbound calls of its own either; Claude is its client, so
+whatever Claude reads through its tools travels to Anthropic as part of the user's
+own conversation.
 
 ## Why self-hosted (and what that buys us)
 
@@ -64,8 +67,11 @@ without an explicit decision to do so; it undoes the reasoning above.
   the dashboard's own localhost origin (not `*`, since this is still a real HTTP
   server even though it's local-only).
 - `src/routes/applications.ts` — CRUD + list/filter/sort/paginate, CSV/XLSX
-  export, bulk lifecycle actions (mark-stale, bulk-delete-by-status), AI tailor
-  request + cost estimate, resume-version download (PDF/DOCX/TXT).
+  export, bulk lifecycle actions (mark-stale, bulk-delete by status or by an
+  explicit id set), AI tailor request + cost estimate, saving a tailored resume
+  written elsewhere (the MCP path), resume-version download (PDF/DOCX/TXT). All
+  deletes go through one cascade helper (cover letters → resume versions →
+  applications), since the schema has no `ON DELETE CASCADE`.
 - `src/routes/settings.ts` — AI provider/model/key/base-resume settings, backed
   by a local JSON file (`backend/data/settings.json`, gitignored) rather than the
   database, since it holds secrets and is conceptually per-machine config, not
@@ -83,7 +89,9 @@ without an explicit decision to do so; it undoes the reasoning above.
   skills) into a single ATS-approved PDF/DOCX template. `src/resume/tailoredResume.ts`
   parses the model's output and transparently falls back to older flat-text
   formats for `resume_versions` rows written before the structured format
-  existed — no data migration needed.
+  existed — no data migration needed. `src/resume/envelopeValidation.ts` is the
+  strict counterpart for resumes arriving over the API (the MCP path): it
+  rejects a malformed entry with the exact field path instead of dropping it.
 - `src/storage/` — `db.ts` (SQLite connection + migrations) and `schema.ts`
   (the DDL) for the database; `settings.ts` for the JSON-file-backed AI
   provider/key/base-resume config described above. `src/types/` holds the
@@ -152,6 +160,34 @@ A manual fallback always exists precisely because automatic detection can
 never be 100% reliable given how these sites work: the right-click context
 menu item and the dashboard's manual add form both go through the same
 `POST /applications` endpoint as auto-capture.
+
+## MCP server
+
+`mcp/` — optional stdio [MCP](https://modelcontextprotocol.io/) server for Claude
+Desktop and Claude Code, built on `@modelcontextprotocol/server`. The Claude app
+spawns `node mcp/dist/index.js` as a child process and talks JSON-RPC over its
+stdin/stdout — no port is opened. Every tool call becomes an HTTP request to the
+backend (`APPLYT_URL`, default `http://localhost:4317`); `mcp/` never opens the
+SQLite file and holds no business logic, so validation and storage stay in one
+place.
+
+- `src/client.ts` — the only module that does network I/O. Turns "backend not
+  running" and backend 4xx/5xx responses into readable errors Claude can act on.
+- `src/tools.ts` — the nine tools (list/get applications, base resume, stats,
+  create, update, save tailored resume, preview/confirm delete), as plain data +
+  handlers so they're testable without a transport. Handlers never throw.
+- `src/deleteTokens.ts` — the delete guard. `preview_delete` resolves its target
+  to concrete ids and issues a single-use, 5-minute token; `confirm_delete` needs
+  that token plus the matching count, and a status-based delete is refused if the
+  matching set changed since the preview. It can't stop Claude confirming its
+  own preview — the client's per-tool approval prompt is the human checkpoint —
+  but nothing is deleted that wasn't shown first.
+- `src/index.ts` — creates the `McpServer`, registers the tools, connects stdio.
+
+Tailoring through MCP is different from the dashboard's **Tailor** button: Claude
+itself writes the resume (no provider call, no key, `cost = 0`) and saves it with
+`POST /applications/:id/resume-versions` in the same stored format, so it shows
+up and downloads exactly like any other version (`ai_provider = 'mcp'`).
 
 ## Distribution (Phase 6, v1.0)
 

@@ -38,6 +38,7 @@ Don't reintroduce multi-tenancy, hosted storage, or centralized key handling wit
 - **Local backend:** Node.js (Express or Fastify), TypeScript, SQLite (via `better-sqlite3` or `drizzle-orm`). Runs on `localhost` on a configurable default port (e.g. `4317`).
 - **Dashboard:** React (Vite) or Next.js, talks to the local backend over `http://localhost:<port>`.
 - **AI calls:** Backend proxies requests to Anthropic/OpenAI using the user's own key from `.env` or a local settings file (never hardcoded, never sent anywhere else), or to a user-configured local/LAN Ollama server (no key required).
+- **MCP server (`mcp/`):** optional stdio MCP server for Claude Desktop/Claude Code (`@modelcontextprotocol/server`). Thin layer over the local backend's HTTP API — never touches SQLite directly. Claude does tailoring itself and saves results via `POST /applications/:id/resume-versions`; deletes go through a preview→confirm token.
 - **Distribution:** public GitHub repo, optional `docker-compose.yml` for one-command setup, README with manual setup steps for non-Docker users.
 
 ## 5. Data model (SQLite)
