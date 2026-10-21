@@ -20,10 +20,12 @@ export function createBackendClient(baseUrl: string): BackendClient {
   async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
     let res: Response;
     try {
+      // FormData (file uploads) goes as-is: fetch sets the multipart boundary.
+      const isForm = body instanceof FormData;
       res = await fetch(`${baseUrl}${path}`, {
         method,
-        headers: body === undefined ? {} : { 'content-type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: body === undefined || isForm ? {} : { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       });
     } catch {
       throw new BackendError(

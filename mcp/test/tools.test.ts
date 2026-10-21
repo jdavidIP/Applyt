@@ -1,4 +1,7 @@
 import { test, afterEach } from 'node:test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { buildTools, type ToolDef } from '../src/tools.ts';
 import { createBackendClient } from '../src/client.ts';
@@ -17,7 +20,7 @@ function stubFetch(routes: Record<string, (body: unknown) => { status?: number; 
   global.fetch = (async (url: string, init?: RequestInit) => {
     const u = new URL(url);
     const key = `${init?.method ?? 'GET'} ${u.pathname}${u.search}`;
-    const body = init?.body ? JSON.parse(init.body as string) : undefined;
+    const body = init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(init.body as string) : undefined;
     calls.push({ method: init?.method ?? 'GET', url: `${u.pathname}${u.search}`, body });
     const handler = routes[key];
     if (!handler) return new Response(JSON.stringify({ error: `no stub for ${key}` }), { status: 599 });
@@ -46,10 +49,10 @@ const app = (id: number, extra: Record<string, unknown> = {}) => ({
   id, company: `Co${id}`, title: 'Eng', status: 'rejected', platform: 'manual', job_description: 'long JD', ...extra,
 });
 
-test('registers the nine tools with the right annotations', () => {
+test('registers the ten tools with the right annotations', () => {
   const { tools, get } = setup();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    'confirm_delete', 'create_application', 'get_application', 'get_base_resume', 'get_stats',
+    'attach_files', 'confirm_delete', 'create_application', 'get_application', 'get_base_resume', 'get_stats',
     'list_applications', 'preview_delete', 'save_tailored_resume', 'update_application',
   ]);
   for (const name of ['list_applications', 'get_application', 'get_base_resume', 'get_stats', 'preview_delete']) {
@@ -58,6 +61,8 @@ test('registers the nine tools with the right annotations', () => {
   assert.equal(get('confirm_delete').annotations.destructiveHint, true);
   assert.equal(get('create_application').annotations.destructiveHint, false);
   assert.equal(get('update_application').annotations.idempotentHint, true);
+  assert.equal(get('attach_files').annotations.readOnlyHint, false);
+  assert.equal(get('attach_files').annotations.destructiveHint, false);
 });
 
 test('list_applications forwards filters and strips job_description', async () => {
@@ -78,12 +83,24 @@ test('get_application combines the row and a version summary', async () => {
   stubFetch({
     'GET /applications/7': () => ({ json: app(7) }),
     'GET /applications/7/resume-versions': () => ({
-      json: [{ id: 3, created_at: '2026-10-19', ai_provider: 'mcp', model: null, tailored_output: '{"resume":{},"matchRating":4}' }],
+      json: [
+        { id: 3, created_at: '2026-10-19', ai_provider: 'mcp', model: null, tailored_output: '{"resume":{},"matchRating":4}', files: [] },
+        {
+          id: 4, created_at: '2026-10-20', ai_provider: 'file', model: null, tailored_output: 'Jane Doe',
+          files: [{ kind: 'resume', format: 'pdf', filename: 'Jane.pdf', size: 1234 }],
+        },
+      ],
     }),
   });
   const out = JSON.parse(text(await setup().get('get_application').handler({ id: 7 })));
   assert.equal(out.application.job_description, 'long JD');
-  assert.deepEqual(out.resumeVersions, [{ id: 3, created_at: '2026-10-19', ai_provider: 'mcp', model: null, matchRating: 4 }]);
+  assert.deepEqual(out.resumeVersions, [
+    { id: 3, created_at: '2026-10-19', ai_provider: 'mcp', model: null, matchRating: 4, files: [] },
+    {
+      id: 4, created_at: '2026-10-20', ai_provider: 'file', model: null, matchRating: null,
+      files: [{ kind: 'resume', format: 'pdf', filename: 'Jane.pdf' }],
+    },
+  ]);
 });
 
 test('get_base_resume returns only the resume text, with a hint when empty', async () => {
@@ -208,4 +225,45 @@ test('confirm_delete refuses a wrong count or reused token', async () => {
   assert.equal(wrong.isError, true);
   const reused = await get('confirm_delete').handler({ token: 'tok1', expectedCount: 1 });
   assert.match(text(reused), /unknown or already used/);
+});
+
+test('attach_files posts parts named by kind and reports the new version', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'applyt-tools-'));
+  writeFileSync(join(dir, 'Jane Resume.pdf'), '%PDF-1.4 resume');
+  writeFileSync(join(dir, 'Jane Cover.pdf'), '%PDF-1.4 cover');
+  const calls = stubFetch({
+    'POST /applications/3/resume-versions/files': () => ({
+      status: 201,
+      json: { id: 9, files: [{ kind: 'resume', format: 'pdf', filename: 'Jane Resume.pdf', size: 15 }] },
+    }),
+  });
+  const r = await setup().get('attach_files').handler({
+    applicationId: 3,
+    files: [
+      { path: join(dir, 'Jane Resume.pdf'), kind: 'resume' },
+      { path: join(dir, 'Jane Cover.pdf'), kind: 'cover_letter' },
+    ],
+  });
+  assert.equal(r.isError, undefined, text(r));
+  const form = calls[0].body as FormData;
+  assert.ok(form instanceof FormData);
+  assert.equal((form.get('resume') as File).name, 'Jane Resume.pdf');
+  assert.equal((form.get('cover_letter') as File).name, 'Jane Cover.pdf');
+  assert.match(text(r), /version 9/);
+});
+
+test('attach_files reports a guard failure as a tool error and uploads nothing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'applyt-tools-'));
+  writeFileSync(join(dir, 'ok.pdf'), '%PDF-1.4');
+  const calls = stubFetch({});
+  const r = await setup().get('attach_files').handler({
+    applicationId: 3,
+    files: [
+      { path: join(dir, 'ok.pdf'), kind: 'resume' },
+      { path: '~/secret.pdf', kind: 'cover_letter' },
+    ],
+  });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /absolute/);
+  assert.equal(calls.length, 0);
 });
