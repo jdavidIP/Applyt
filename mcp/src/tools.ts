@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 import { BackendError, type BackendClient } from './client.js';
 import { DELETE_TOKEN_TTL_MS, type DeleteTokenStore } from './deleteTokens.js';
+import { readAttachment } from './attachFiles.js';
 
 // Tool definitions as plain data + handlers so they're testable without an
 // MCP transport; index.ts registers them on the McpServer. Handlers never
@@ -132,14 +133,22 @@ export function buildTools(client: BackendClient, tokens: DeleteTokenStore): Too
     {
       name: 'get_application',
       title: 'Get application',
-      description: 'Get one application including its full job description, plus a summary of resume versions already tailored for it.',
+      description:
+        'Get one application including its full job description, plus a summary of its resume versions (tailored ones, and any files the user attached).',
       inputSchema: z.object({ id: z.number().int().min(1) }),
       annotations: { readOnlyHint: true },
       handler: ({ id }) =>
         guarded(async () => {
           const application = await client.request<AppRow>('GET', `/applications/${id}`);
           const versions = await client.request<
-            { id: number; created_at: string; ai_provider: string | null; model: string | null; tailored_output: string | null }[]
+            {
+              id: number;
+              created_at: string;
+              ai_provider: string | null;
+              model: string | null;
+              tailored_output: string | null;
+              files?: { kind: string; format: string; filename: string }[];
+            }[]
           >('GET', `/applications/${id}/resume-versions`);
           const resumeVersions = versions.map((v) => {
             let matchRating: number | null = null;
@@ -149,7 +158,8 @@ export function buildTools(client: BackendClient, tokens: DeleteTokenStore): Too
             } catch {
               // legacy flat-text versions have no JSON rating
             }
-            return { id: v.id, created_at: v.created_at, ai_provider: v.ai_provider, model: v.model, matchRating };
+            const files = (v.files ?? []).map(({ kind, format, filename }) => ({ kind, format, filename }));
+            return { id: v.id, created_at: v.created_at, ai_provider: v.ai_provider, model: v.model, matchRating, files };
           });
           return ok({ application, resumeVersions });
         }),
@@ -211,6 +221,41 @@ export function buildTools(client: BackendClient, tokens: DeleteTokenStore): Too
         guarded(async () => {
           const v = await client.request<{ id: number }>('POST', `/applications/${applicationId}/resume-versions`, envelope);
           return ok(`Saved as resume version ${v.id}. The user can download it (PDF/Word/text) from this application in the Applyt dashboard.`);
+        }),
+    },
+    {
+      name: 'attach_files',
+      title: 'Attach resume / cover letter files',
+      description:
+        "Attach the user's own resume and/or cover letter files (PDF or Word .docx) to a saved application, stored exactly as-is — use this instead of save_tailored_resume when the user made the file themselves and wants their own layout kept. Pass the full absolute path of each file on the user's computer. Files Claude Desktop creates live in its own workspace, which this tool cannot reach: ask the user to download the file first and tell you where it saved. Up to 4 files (one resume and one cover letter, each as PDF and/or Word), max 5 MB each. The files become one new resume version the user can download from the Applyt dashboard.",
+      inputSchema: z.object({
+        applicationId: z.number().int().min(1),
+        files: z
+          .array(z.object({ path: z.string().min(1), kind: z.enum(['resume', 'cover_letter']) }))
+          .min(1)
+          .max(4),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      handler: ({ applicationId, files }) =>
+        guarded(async () => {
+          // Read and check every file before uploading any of them.
+          let read;
+          try {
+            read = await Promise.all(
+              (files as { path: string; kind: string }[]).map(async (f) => ({ kind: f.kind, ...(await readAttachment(f.path)) })),
+            );
+          } catch (err) {
+            return fail(err instanceof Error ? err.message : String(err));
+          }
+          const form = new FormData();
+          for (const f of read) form.append(f.kind, new Blob([f.data]), f.filename);
+          const v = await client.request<{ id: number; files: { kind: string; format: string; filename: string }[] }>(
+            'POST',
+            `/applications/${applicationId}/resume-versions/files`,
+            form,
+          );
+          const list = v.files.map((f) => `${f.filename} (${f.kind === 'resume' ? 'resume' : 'cover letter'}, ${f.format.toUpperCase()})`);
+          return ok(`Attached as resume version ${v.id}: ${list.join(', ')}. The user can download these exact files from this application in the Applyt dashboard.`);
         }),
     },
     {

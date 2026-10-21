@@ -261,6 +261,24 @@ export interface ResumeVersion {
   created_at: string;
 }
 
+// User-attached files on an ai_provider = 'file' resume version (stored in
+// resume_version_files). The summary never carries the bytes.
+export const ATTACHMENT_KINDS = ["resume", "cover_letter"] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+export const ATTACHMENT_FORMATS = ["pdf", "docx"] as const;
+export type AttachmentFormat = (typeof ATTACHMENT_FORMATS)[number];
+
+export interface ResumeVersionFileSummary {
+  kind: AttachmentKind;
+  format: AttachmentFormat;
+  filename: string;
+  size: number;
+}
+
+export interface ResumeVersionWithFiles extends ResumeVersion {
+  files: ResumeVersionFileSummary[];
+}
+
 // Pre-generate cost estimate for POST /:id/tailor, shown before the user
 // spends real money running it (CLAUDE.md §7 Phase 4 follow-up).
 // - 'historical': extrapolated from this model's actual $-per-char across past

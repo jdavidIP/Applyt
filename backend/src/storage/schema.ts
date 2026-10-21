@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS cover_letters (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- User-attached resume / cover-letter files for a 'file' resume version,
+-- stored byte-for-byte. Kept out of resume_versions so listing versions never
+-- reads the blobs; only the download route selects data.
+CREATE TABLE IF NOT EXISTS resume_version_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  resume_version_id INTEGER NOT NULL REFERENCES resume_versions(id),
+  kind TEXT NOT NULL,                           -- 'resume' | 'cover_letter'
+  format TEXT NOT NULL,                         -- 'pdf' | 'docx'
+  filename TEXT NOT NULL,                       -- original name, used on download
+  size INTEGER NOT NULL,                        -- bytes
+  data BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (resume_version_id, kind, format)
+);
+
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 CREATE INDEX IF NOT EXISTS idx_applications_platform ON applications(platform);
 `;

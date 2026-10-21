@@ -55,3 +55,16 @@ test('non-2xx without a JSON body still produces a message', async () => {
   global.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch;
   await assert.rejects(createBackendClient('http://x').request('GET', '/x'), /500/);
 });
+
+test('request sends FormData as-is, without a JSON content-type', async () => {
+  let seen: RequestInit | undefined;
+  global.fetch = (async (_url: string, init?: RequestInit) => {
+    seen = init;
+    return new Response(JSON.stringify({ id: 1 }), { status: 201 });
+  }) as typeof fetch;
+  const form = new FormData();
+  form.append('resume', new Blob(['%PDF-']), 'r.pdf');
+  await createBackendClient('http://x').request('POST', '/applications/1/resume-versions/files', form);
+  assert.ok(seen?.body instanceof FormData);
+  assert.equal((seen?.headers as Record<string, string>)['content-type'], undefined);
+});

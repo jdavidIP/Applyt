@@ -148,6 +148,20 @@ export interface ResumeVersion {
   cost: number | null;
   input_char_length: number | null;
   created_at: string;
+  // Attached files on an ai_provider = 'file' version; [] for generated ones.
+  files: ResumeVersionFileSummary[];
+}
+
+export const ATTACHMENT_KINDS = ['resume', 'cover_letter'] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+export const ATTACHMENT_FORMATS = ['pdf', 'docx'] as const;
+export type AttachmentFormat = (typeof ATTACHMENT_FORMATS)[number];
+
+export interface ResumeVersionFileSummary {
+  kind: AttachmentKind;
+  format: AttachmentFormat;
+  filename: string;
+  size: number;
 }
 
 // Body for POST /:id/tailor — lets the user opt out of the match rating

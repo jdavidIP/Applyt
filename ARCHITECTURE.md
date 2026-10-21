@@ -69,9 +69,17 @@ without an explicit decision to do so; it undoes the reasoning above.
 - `src/routes/applications.ts` — CRUD + list/filter/sort/paginate, CSV/XLSX
   export, bulk lifecycle actions (mark-stale, bulk-delete by status or by an
   explicit id set), AI tailor request + cost estimate, saving a tailored resume
-  written elsewhere (the MCP path), resume-version download (PDF/DOCX/TXT). All
-  deletes go through one cascade helper (cover letters → resume versions →
+  written elsewhere (the MCP path), attaching the user's own resume/cover-letter
+  files, resume-version download (PDF/DOCX/TXT). All deletes go through one
+  cascade helper (attached files → cover letters → resume versions →
   applications), since the schema has no `ON DELETE CASCADE`.
+- **File versions** (`ai_provider = 'file'`) — a resume version whose PDF/DOCX
+  downloads are files the user attached, served byte-for-byte under their
+  original names. The bytes live in their own table, `resume_version_files`,
+  which only the download route reads, so listing versions stays cheap. Format
+  is decided by content (`src/resume/fileFormat.ts`: `%PDF-`, or a ZIP containing
+  `word/document.xml`), never by filename; the version's `tailored_output` holds
+  the extracted text so every preview works with the unchanged parsers.
 - `src/routes/settings.ts` — AI provider/model/key/base-resume settings, backed
   by a local JSON file (`backend/data/settings.json`, gitignored) rather than the
   database, since it holds secrets and is conceptually per-machine config, not
@@ -173,8 +181,8 @@ place.
 
 - `src/client.ts` — the only module that does network I/O. Turns "backend not
   running" and backend 4xx/5xx responses into readable errors Claude can act on.
-- `src/tools.ts` — the nine tools (list/get applications, base resume, stats,
-  create, update, save tailored resume, preview/confirm delete), as plain data +
+- `src/tools.ts` — the ten tools (list/get applications, base resume, stats,
+  create, update, save tailored resume, attach files, preview/confirm delete), as plain data +
   handlers so they're testable without a transport. Handlers never throw.
 - `src/deleteTokens.ts` — the delete guard. `preview_delete` resolves its target
   to concrete ids and issues a single-use, 5-minute token; `confirm_delete` needs
@@ -182,6 +190,11 @@ place.
   matching set changed since the preview. It can't stop Claude confirming its
   own preview — the client's per-tool approval prompt is the human checkpoint —
   but nothing is deleted that wasn't shown first.
+- `src/attachFiles.ts` — the guard for `attach_files`. The model supplies the
+  path, so only absolute paths to regular `.pdf`/`.docx` files of ≤ 5 MB are
+  read (size checked before reading), and their leading bytes must match the
+  extension — a confused or prompt-injected Claude can't pull other files
+  (keys, `.env`) into Applyt.
 - `src/index.ts` — creates the `McpServer`, registers the tools, connects stdio.
 
 Tailoring through MCP is different from the dashboard's **Tailor** button: Claude

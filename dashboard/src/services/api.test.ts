@@ -317,6 +317,46 @@ describe('api resume file upload/download functions', () => {
     expect(url).toContain('/applications/7/resume-versions/3/download?format=pdf');
   });
 
+  test('uploadResumeFiles POSTs FormData with parts named by kind and no manual Content-Type', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ id: 5, ai_provider: 'file', files: [] }), { status: 201 }),
+    ) as unknown as typeof fetch;
+
+    const resume = new File(['%PDF-1.4'], 'Jane Resume.pdf', { type: 'application/pdf' });
+    const cover = new File(['%PDF-1.4'], 'Jane Cover.pdf', { type: 'application/pdf' });
+    const result = await api.uploadResumeFiles(7, [
+      { kind: 'resume', file: resume },
+      { kind: 'cover_letter', file: cover },
+    ]);
+    expect(result.id).toBe(5);
+
+    const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain('/applications/7/resume-versions/files');
+    expect((init as RequestInit).method).toBe('POST');
+    const form = (init as RequestInit).body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect((form.get('resume') as File).name).toBe('Jane Resume.pdf');
+    expect((form.get('cover_letter') as File).name).toBe('Jane Cover.pdf');
+    expect(new Headers((init as RequestInit).headers).has('Content-Type')).toBe(false);
+  });
+
+  test('uploadResumeFiles surfaces the backend error message', async () => {
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: '"x.pdf" is an unsupported type' }), { status: 400 }),
+    ) as unknown as typeof fetch;
+    const file = new File(['nope'], 'x.pdf');
+    await expect(api.uploadResumeFiles(7, [{ kind: 'resume', file }])).rejects.toThrow('unsupported type');
+  });
+
+  test('downloadResumeVersion adds kind=cover_letter only when asked', async () => {
+    global.fetch = vi.fn(async () => new Response(new Blob(['x']), { status: 200 })) as unknown as typeof fetch;
+    await api.downloadResumeVersion(7, 3, 'pdf');
+    await api.downloadResumeVersion(7, 3, 'pdf', 'cover_letter');
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).not.toContain('kind=');
+    expect(calls[1][0]).toContain('download?format=pdf&kind=cover_letter');
+  });
+
   test('downloadResumeVersion surfaces the backend error message on failure', async () => {
     global.fetch = vi.fn(
       async () => new Response(JSON.stringify({ error: 'Resume version not found.' }), { status: 404 }),

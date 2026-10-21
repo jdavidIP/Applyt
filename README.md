@@ -80,6 +80,10 @@ this is deliberately self-hosted rather than a hosted service.
 - **Use it from Claude (MCP, optional)** — connect Claude Desktop or Claude Code to
   ask questions about your applications, tailor a resume in conversation (no API
   key; uses your Claude plan), and add, update, or delete entries.
+- **Bring your own resume files** — attach your own resume and/or cover letter (PDF
+  or Word, made with your own template, in Claude or anywhere else) to an
+  application. They're stored and downloaded back exactly as-is — never
+  re-rendered through the ATS template.
 
 ## Requirements
 
@@ -197,6 +201,11 @@ nothing beyond your Claude plan. Setup: see
   deleting rows Claude never looked at, but the real safeguard is your Claude
   app's per-tool approval prompt — don't set `confirm_delete` to "always allow".
   Deletes cannot be undone.
+- **Keeping your own layout:** if Claude (or you) made the resume as a PDF/Word file
+  in your own design, ask Claude to attach it with `attach_files` instead of saving
+  it through Applyt's template. Files Claude Desktop creates live in its own
+  workspace, so download the file first and give Claude its full path. You can also
+  upload files directly in the dashboard.
 
 ## Configuration
 
@@ -238,7 +247,8 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `GET`    | `/applications/:id/tailor-estimate`      | Pre-generate cost estimate for a tailor run                  |
 | `GET`    | `/applications/:id/resume-versions`      | List tailored resume versions for this application           |
 | `POST`   | `/applications/:id/resume-versions`      | Save a tailored resume written elsewhere (used by the MCP server) |
-| `GET`    | `/applications/:id/resume-versions/:versionId/download` | Download a tailored resume as PDF/DOCX/TXT (`?format=`) |
+| `POST`   | `/applications/:id/resume-versions/files` | Attach your own resume/cover letter files (multipart; parts `resume` / `cover_letter`, PDF or DOCX, ≤ 5 MB each, max 4) as a new file version |
+| `GET`    | `/applications/:id/resume-versions/:versionId/download` | Download a resume as PDF/DOCX/TXT (`?format=`); attached files come back byte-for-byte, and `&kind=cover_letter` downloads an attached cover letter |
 | `GET`    | `/settings`                              | Client-safe AI settings (never returns raw API keys)         |
 | `PUT`    | `/settings`                              | Update AI provider, model, keys, base resume, or pricing     |
 | `GET`    | `/settings/models?provider=`             | Live model list from the provider, using your stored/env key |

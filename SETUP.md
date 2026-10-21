@@ -226,6 +226,11 @@ applications match) and then confirm it with the matching count. Keep your
 Claude app's approval prompt on for `confirm_delete` — that prompt is the real
 safeguard, and deletes cannot be undone.
 
+To keep a resume or cover letter in your own layout, have Claude attach the file
+with `attach_files` (give it the full path; in Claude Desktop, download the file
+Claude made first). The tool only reads absolute paths to `.pdf`/`.docx` files of
+up to 5 MB whose contents match the extension.
+
 ---
 
 ## Configuration reference
