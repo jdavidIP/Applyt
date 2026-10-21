@@ -43,9 +43,10 @@ configuration, and troubleshooting.
 | Dashboard     | React + [Vite](https://vite.dev/), TypeScript                        |
 | Extension     | Chrome Manifest V3, [@crxjs/vite-plugin](https://crxjs.dev/vite-plugin), TypeScript content scripts (per-platform: Indeed, LinkedIn, Glassdoor) |
 | AI tailoring  | Direct `fetch` calls to the Anthropic or OpenAI REST API (no SDK dependency) using your own API key |
+| MCP server    | Optional stdio server for Claude Desktop / Claude Code ([`@modelcontextprotocol/server`](https://github.com/modelcontextprotocol/typescript-sdk)), a thin layer over the backend API |
 | Storage       | A single SQLite file (`backend/data/applications.db`) — no external database, no hosted backend |
-| Tests         | `node:test` (backend), [Vitest](https://vitest.dev/) (dashboard)     |
-| Monorepo      | npm workspaces (`backend`, `dashboard`, `extension`)                 |
+| Tests         | `node:test` (backend, mcp), [Vitest](https://vitest.dev/) (dashboard) |
+| Monorepo      | npm workspaces (`backend`, `dashboard`, `extension`, `mcp`)          |
 
 Everything runs locally on your machine — see [`CLAUDE.md`](./CLAUDE.md) §2–3 for why
 this is deliberately self-hosted rather than a hosted service.
@@ -76,6 +77,9 @@ this is deliberately self-hosted rather than a hosted service.
   DOCX in a single, polished ATS-approved template (centered header, colored section
   headers, right-aligned dates, hanging-indent bullets) instead of unstyled text in
   a default font.
+- **Use it from Claude (MCP, optional)** — connect Claude Desktop or Claude Code to
+  ask questions about your applications, tailor a resume in conversation (no API
+  key; uses your Claude plan), and add, update, or delete entries.
 
 ## Requirements
 
@@ -176,6 +180,24 @@ first time you run it. See [SETUP.md](SETUP.md) for details.
 Per-model pricing (USD per million tokens) is editable in Settings; a model with no
 configured price simply shows cost as "unknown" rather than a guess.
 
+## Use Applyt from Claude (MCP)
+
+Applyt ships an optional local MCP server so Claude Desktop / Claude Code can browse
+your applications, answer questions about them, tailor a resume (saved as a normal
+resume version you download from the dashboard), and add, update, or delete entries.
+Claude writes the tailored resume itself, so this path needs no API key and costs
+nothing beyond your Claude plan. Setup: see
+[SETUP.md](SETUP.md#connect-claude-mcp-server-optional).
+
+- **Privacy:** when Claude reads your applications or resume through these tools,
+  that data is sent to Anthropic as part of your conversation — the same as using
+  the Anthropic tailoring provider. Nothing is sent unless Claude uses the tools.
+- **Deletes are two-step:** Claude must preview a delete (seeing exactly which
+  applications match) and then confirm it with the matching count. This prevents
+  deleting rows Claude never looked at, but the real safeguard is your Claude
+  app's per-tool approval prompt — don't set `confirm_delete` to "always allow".
+  Deletes cannot be undone.
+
 ## Configuration
 
 | Variable            | Where    | Default                        | Purpose                                          |
@@ -188,6 +210,7 @@ configured price simply shows cost as "unknown" rather than a guess.
 | `ANTHROPIC_API_KEY`  | backend  | —                                | Overrides the stored Anthropic key, if set         |
 | `OPENAI_API_KEY`     | backend  | —                                | Overrides the stored OpenAI key, if set            |
 | `OLLAMA_BASE_URL`    | backend  | `http://localhost:11434`        | Overrides the stored Ollama server URL, if set     |
+| `APPLYT_URL`         | mcp      | `http://localhost:4317`         | Backend URL the MCP server calls                   |
 | `VITE_API_BASE`      | dashboard| `/api` (proxied)                | Backend base URL the dashboard calls               |
 
 Your data lives in a single SQLite file at `backend/data/applications.db` (gitignored).
@@ -205,6 +228,7 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `PATCH`  | `/applications/:id`                      | Partial update; bumps `date_last_updated`                    |
 | `DELETE` | `/applications/:id`                      | Delete one (and any tailored resume versions for it)         |
 | `DELETE` | `/applications?status=`                  | Bulk-delete all applications with a given status             |
+| `POST`   | `/applications/bulk-delete`              | Delete an explicit set (`{ ids }`); all-or-nothing, 404 if any id is missing |
 | `GET`    | `/applications/export.csv`               | Download all rows as CSV                                     |
 | `GET`    | `/applications/export.xlsx`              | Download all rows as an Excel workbook                       |
 | `GET`    | `/applications/stats`                    | Applications-per-week (last 8 weeks) + response rate         |
@@ -213,6 +237,7 @@ All routes are under the backend origin (`http://localhost:4317`):
 | `POST`   | `/applications/:id/tailor`               | Generate a tailored resume for this application              |
 | `GET`    | `/applications/:id/tailor-estimate`      | Pre-generate cost estimate for a tailor run                  |
 | `GET`    | `/applications/:id/resume-versions`      | List tailored resume versions for this application           |
+| `POST`   | `/applications/:id/resume-versions`      | Save a tailored resume written elsewhere (used by the MCP server) |
 | `GET`    | `/applications/:id/resume-versions/:versionId/download` | Download a tailored resume as PDF/DOCX/TXT (`?format=`) |
 | `GET`    | `/settings`                              | Client-safe AI settings (never returns raw API keys)         |
 | `PUT`    | `/settings`                              | Update AI provider, model, keys, base resume, or pricing     |
@@ -228,7 +253,7 @@ same endpoint — there is only one storage path.
 ## Tests
 
 ```bash
-npm test        # backend (node:test) + dashboard (Vitest)
+npm test        # backend + mcp (node:test) + dashboard (Vitest)
 ```
 
 The extension has no automated test suite — all three content scripts are verified
@@ -241,6 +266,7 @@ inherently tied to each site's actual (and frequently changing) markup.
 backend/         Fastify + better-sqlite3 API (TypeScript)
 dashboard/       React + Vite single-page app (TypeScript)
 extension/       Chrome Manifest V3 extension — content scripts + background service worker
+mcp/             Optional MCP server for Claude Desktop / Claude Code (stdio, TypeScript)
 shared/          Design tokens shared by the dashboard and extension popup UIs
 docker-compose.yml, backend/Dockerfile, dashboard/Dockerfile   One-command Docker packaging
 CLAUDE.md        Full product spec and phased roadmap
